@@ -12,23 +12,12 @@ dist/
 .env.*
 .DS_Store
 
-# Source asset archives / raw packs
+# Archives / raw source packs
 *.zip
 kenney_fish-pack_2/
 tactile_silhouette/
 
-# Local build artifacts and tracked bundles
-dot-ocean-react.html
-dot_ocean_10_fish_assets_named.zip
-package-lock.json
-node_modules/
-/**/node_modules/
-
-# Archive / legacy copies
-dotocean-app/
-
-
-# Nested app / deployment cache
+# Nested app generated files
 dotocean-app/node_modules/
 dotocean-app/dist/
 dotocean-app/.cache/
