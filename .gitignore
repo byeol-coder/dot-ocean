@@ -22,3 +22,6 @@ dotocean-app/node_modules/
 dotocean-app/dist/
 dotocean-app/.cache/
 dotocean-app/node_modules/.cache/
+
+# Temporary files
+FETCH_HEAD
