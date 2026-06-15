@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { SPECIES, PLAYER_SPECIES, byKey, type Species } from '../data/species';
+import { createFishMesh } from './fishMeshFactory';
 
 export interface GameStats {
   level: number; xp: number; xpNext: number; sizeFactor: number;
@@ -101,8 +102,27 @@ export class OceanGame {
   private camFocus = new THREE.Vector3();
 
   private water!: THREE.Mesh; private waterMat!: THREE.ShaderMaterial;
-  private particles!: THREE.Points; private shafts: THREE.Mesh[] = [];
+  private particles!: THREE.Points; private bubblePoints!: THREE.Points; private shafts: THREE.Mesh[] = [];
+  private reefs: THREE.Group[] = [];
+  private seaweeds: THREE.Object3D[] = [];
+  private corals: THREE.Group[] = [];
+  private playerLight?: THREE.PointLight;
   private glowTex = radialTexture(180, 240, 255);
+  private discoveryAnims: Array<{
+    bodyMats: THREE.MeshStandardMaterial[];
+    glowMat: THREE.SpriteMaterial;
+    unknownMark?: THREE.Sprite;
+    start: number;
+    dur: number;
+    fromCol: THREE.Color;
+    toCol: THREE.Color;
+    fromEmiss: number;
+    toEmiss: number;
+    fromOp: number;
+    toOp: number;
+    fromGlowOp: number;
+    toGlowOp: number;
+  }> = [];
 
   constructor(canvas: HTMLCanvasElement, opts: GameOpts, cb: GameCallbacks) {
     this.canvas = canvas; this.opts = opts; this.cb = cb;
@@ -124,9 +144,24 @@ export class OceanGame {
 
   // ---------- build ----------
   private buildLights(): void {
-    this.scene.add(new THREE.AmbientLight(0x335577, 0.7));
-    const d = new THREE.DirectionalLight(0xbfe9ff, 0.85); d.position.set(0.3, 1, 0.4); this.scene.add(d);
-    const p = new THREE.PointLight(0x39d6ff, 0.6, 160); p.position.set(0, 6, 30); this.scene.add(p);
+    // Soft ambient "ocean" fill
+    this.scene.add(new THREE.AmbientLight(0x284859, 0.6));
+
+    // Directional (sun) light from above with cool tint
+    const sun = new THREE.DirectionalLight(0xbfe9ff, 0.55);
+    sun.position.set(-0.3, 1, 0.6); this.scene.add(sun);
+
+    // Rim/back light to give silhouettes depth
+    const rim = new THREE.DirectionalLight(0x3b6b8f, 0.25);
+    rim.position.set(0.6, 0.6, -0.8); this.scene.add(rim);
+
+    // Player-local point light for stronger glow
+    this.playerLight = new THREE.PointLight(0x7fe6ff, 0.9, 60, 2);
+    this.playerLight.position.set(0, 6, 6); this.scene.add(this.playerLight);
+
+    // Subtle fill light from below (seafloor bounce)
+    const fill = new THREE.PointLight(0x20404f, 0.35, 220);
+    fill.position.set(0, -WY - 8, -10); this.scene.add(fill);
   }
 
   private buildWater(): void {
@@ -135,12 +170,14 @@ export class OceanGame {
       transparent: true, depthWrite: false, side: THREE.DoubleSide,
       uniforms: {
         uTime: { value: 0 },
-        uDeep: { value: new THREE.Color(0x07314f) },
+        uDeep: { value: new THREE.Color(0x031827) },
+        uMid: { value: new THREE.Color(0x07314f) },
         uShallow: { value: new THREE.Color(0x4fd6ff) },
-        uOpacity: { value: 0.4 },
+        uOpacity: { value: 0.55 },
+        uSurface: { value: new THREE.Color(0xcfefff) },
       },
       vertexShader: `
-        uniform float uTime; varying float vH;
+        uniform float uTime; varying float vH; varying vec3 vPos;
         vec3 gerstner(vec2 p, vec2 dir, float steep, float wl, float speed, float t){
           float k = 6.2831853/wl; float c = sqrt(9.8/k); vec2 d = normalize(dir);
           float f = k*dot(d,p) - c*speed*t; float a = steep/k;
@@ -149,19 +186,28 @@ export class OceanGame {
         void main(){
           vec2 g = vec2(position.x, position.y); vec3 o = vec3(0.0);
           o += gerstner(g, vec2(1.0,0.3), 0.30, 30.0, 1.0, uTime);
-          o += gerstner(g, vec2(-0.4,1.0), 0.24, 18.0, 0.9, uTime);
-          o += gerstner(g, vec2(0.7,-0.6), 0.16, 9.0, 1.4, uTime);
-          vec3 np = position; np.x += o.x; np.y += o.z; np.z += o.y; vH = o.y;
+          o += gerstner(g, vec2(-0.4,1.0), 0.24, 18.0, 0.9, uTime*0.9);
+          o += gerstner(g, vec2(0.7,-0.6), 0.16, 9.0, 1.4, uTime*1.2);
+          // small ripple layer for shimmer
+          o += gerstner(g, vec2(0.2,0.9), 0.06, 3.2, 2.1, uTime*2.8);
+          vec3 np = position; np.x += o.x; np.y += o.z; np.z += o.y; vH = o.y; vPos = np;
           gl_Position = projectionMatrix * modelViewMatrix * vec4(np,1.0);
         }`,
       fragmentShader: `
-        varying float vH; uniform vec3 uDeep; uniform vec3 uShallow; uniform float uOpacity;
+        varying float vH; varying vec3 vPos;
+        uniform vec3 uDeep; uniform vec3 uMid; uniform vec3 uShallow; uniform vec3 uSurface; uniform float uOpacity;
         void main(){
-          float h = clamp(vH*1.6 + 0.5, 0.0, 1.0);
-          vec3 col = mix(uDeep, uShallow, h);
-          float foam = smoothstep(0.42, 0.62, vH);
-          col = mix(col, vec3(0.82,0.96,1.0), foam*0.6);
-          gl_FragColor = vec4(col, uOpacity);
+          // depth cue by world Y position + displacement
+          float depth = clamp((vPos.y + 40.0) / 80.0, 0.0, 1.0);
+          vec3 col = mix(uDeep, uMid, depth);
+          col = mix(col, uShallow, smoothstep(0.2, 0.8, depth));
+          // surface rim highlight from displacement
+          float rim = pow(1.0 - abs(vH)*1.2, 3.0);
+          col += uSurface * rim * 0.18;
+          // slight fog / bluish tint based on depth
+          float fog = smoothstep(0.0, 1.0, depth);
+          col = mix(col, vec3(0.02,0.06,0.12), fog*0.35);
+          gl_FragColor = vec4(col, uOpacity * (0.6 + 0.4*(1.0 - depth)));
         }`,
     });
     this.water = new THREE.Mesh(geo, this.waterMat);
@@ -178,68 +224,83 @@ export class OceanGame {
     );
     cave.position.set(8, 2, -120); this.scene.add(cave);
 
-    // seafloor
-    const floor = new THREE.Mesh(
-      new THREE.PlaneGeometry(320, 240, 1, 1),
-      new THREE.MeshStandardMaterial({ color: 0x05111d, roughness: 1, metalness: 0 }),
-    );
-    floor.rotation.x = -Math.PI / 2; floor.position.set(0, -WY - 4, -30); this.scene.add(floor);
+    // seafloor with texture-like variation
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(420, 320, 8, 8), new THREE.MeshStandardMaterial({ color: 0x04121a, roughness: 1, metalness: 0 }));
+    floor.rotation.x = -Math.PI / 2; floor.position.set(0, -WY - 8, -40); this.scene.add(floor);
 
-    // corals
-    const hues = [285, 195, 320, 160, 265, 305];
-    for (let i = 0; i < 9; i++) {
-      const g = new THREE.Group();
-      const hue = hues[i % hues.length];
-      const col = new THREE.Color().setHSL(hue / 360, 0.85, 0.6);
-      const mat = new THREE.MeshStandardMaterial({ color: col, emissive: col, emissiveIntensity: 0.65, roughness: 0.6 });
-      const arms = 3 + (i % 3);
-      for (let a = 0; a < arms; a++) {
-        const h = 5 + Math.random() * 7;
-        const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.5, h, 6), mat);
-        arm.position.y = h / 2;
-        arm.rotation.z = (a - (arms - 1) / 2) * 0.42;
-        g.add(arm);
+    // layered reefs (foreground, mid, background)
+    for (let layer = 0; layer < 3; layer++) {
+      const rg = new THREE.Group();
+      const count = [6, 10, 14][layer];
+      for (let i = 0; i < count; i++) {
+        const b = new THREE.Mesh(new THREE.SphereGeometry(2 + Math.random() * (4 - layer), 10, 8), new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(0.08 + Math.random() * 0.08, 0.35, 0.08 + layer * 0.03), roughness: 0.9 }));
+        b.scale.setScalar(1 + Math.random() * (1.4 + layer * 0.6));
+        b.position.set((Math.random() - 0.5) * WX * 1.8, -WY - 3 + layer * 1.2, -8 - layer * 12 - Math.random() * 20);
+        b.rotation.x = Math.random() * Math.PI * 2; rg.add(b);
       }
-      g.position.set(-WX + 6 + (i / 9) * (WX * 2 - 12) + (Math.random() - 0.5) * 8, -WY - 3, -6 - Math.random() * 30);
-      this.scene.add(g);
+      this.reefs.push(rg); this.scene.add(rg);
+    }
+
+    // waving seaweed (thin cylinders) - store for animation
+    for (let i = 0; i < 28; i++) {
+      const h = 6 + Math.random() * 12; const mat = new THREE.MeshStandardMaterial({ color: 0x194f42, roughness: 0.8, metalness: 0 });
+      const sw = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.14, h, 6), mat);
+      sw.position.set((Math.random() - 0.5) * WX * 1.6, -WY - 4 + Math.random() * 1, -6 - Math.random() * 40);
+      sw.userData = { sway: 0.6 + Math.random() * 1.2, phase: Math.random() * 10 };
+      sw.castShadow = false; sw.receiveShadow = false; this.seaweeds.push(sw); this.scene.add(sw);
+    }
+
+    // fluorescent coral clusters
+    const coralHues = [0.88, 0.60, 0.75, 0.22];
+    for (let i = 0; i < 12; i++) {
+      const g = new THREE.Group();
+      const p = new THREE.Mesh(new THREE.SphereGeometry(0.9 + Math.random() * 1.6, 8, 6), new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(coralHues[i % coralHues.length], 0.9, 0.5), emissive: new THREE.Color().setHSL(coralHues[i % coralHues.length], 0.9, 0.45), emissiveIntensity: 0.55, roughness: 0.6 }));
+      p.position.set(0, 0, 0); g.add(p);
+      g.position.set((Math.random() - 0.5) * WX * 1.6, -WY - 2 + Math.random() * 1.2, -6 - Math.random() * 30);
+      this.corals.push(g); this.scene.add(g);
     }
 
     // light shafts
     const stex = shaftTexture();
-    for (let i = 0; i < 5; i++) {
-      const m = new THREE.Mesh(
-        new THREE.PlaneGeometry(10 + Math.random() * 8, 90),
-        new THREE.MeshBasicMaterial({ map: stex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.5 }),
-      );
-      m.position.set(-WX + 12 + i * 26 + (Math.random() - 0.5) * 8, 14, -20 - Math.random() * 30);
-      m.rotation.z = (Math.random() - 0.5) * 0.3;
+    for (let i = 0; i < 6; i++) {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(12 + Math.random() * 10, 110), new THREE.MeshBasicMaterial({ map: stex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.45 }));
+      m.position.set(-WX + 12 + i * 26 + (Math.random() - 0.5) * 8, 18 + Math.random() * 6, -24 - Math.random() * 40);
+      m.rotation.z = (Math.random() - 0.5) * 0.22; m.userData = { speed: 0.2 + Math.random() * 0.6, phase: Math.random() * 6 };
       this.shafts.push(m); this.scene.add(m);
+    }
+
+    // distant cave silhouettes
+    for (let i = 0; i < 3; i++) {
+      const cav = new THREE.Mesh(new THREE.PlaneGeometry(140, 90), new THREE.MeshBasicMaterial({ color: 0x02131a, transparent: true, opacity: 0.85 }));
+      cav.position.set(40 + i * 18, -4 + i * 2, -140 - i * 18); this.scene.add(cav);
     }
   }
 
   private buildParticles(): void {
-    const n = 300; const pos = new Float32Array(n * 3);
+    // Main particulate: small floating micro-particles (denser but performant)
+    const n = 420; const pos = new Float32Array(n * 3);
     for (let i = 0; i < n; i++) {
-      pos[i * 3] = (Math.random() - 0.5) * 150;
-      pos[i * 3 + 1] = (Math.random() - 0.5) * 90;
-      pos[i * 3 + 2] = -60 + Math.random() * 70;
+      pos[i * 3] = (Math.random() - 0.5) * 200;
+      pos[i * 3 + 1] = (Math.random() - 0.5) * 120;
+      pos[i * 3 + 2] = -80 + Math.random() * 120;
     }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    this.particles = new THREE.Points(geo, new THREE.PointsMaterial({
-      color: 0xaee9ff, size: 0.55, transparent: true, opacity: 0.5,
-      blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true,
-    }));
+    const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    this.particles = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0x9fe9ff, size: 0.6, transparent: true, opacity: 0.45, blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true }));
     this.scene.add(this.particles);
+
+    // Small bubble stream (rising brighter bubbles)
+    const bcount = 120; const bpos = new Float32Array(bcount * 3);
+    for (let i = 0; i < bcount; i++) { bpos[i * 3] = (Math.random() - 0.5) * WX * 1.6; bpos[i * 3 + 1] = -WY - 10 + Math.random() * 80; bpos[i * 3 + 2] = -10 - Math.random() * 100; }
+    const bgeo = new THREE.BufferGeometry(); bgeo.setAttribute('position', new THREE.BufferAttribute(bpos, 3));
+    this.bubblePoints = new THREE.Points(bgeo, new THREE.PointsMaterial({ color: 0xddeeff, size: 1.2, transparent: true, opacity: 0.8, depthWrite: false, blending: THREE.AdditiveBlending }));
+    this.scene.add(this.bubblePoints);
   }
 
   // ---------- creature meshes ----------
   private makeGlow(hue: number, scale: number, known: boolean): THREE.Sprite {
-    const col = new THREE.Color().setHSL((hue % 360) / 360, 0.9, 0.6);
-    const sp = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: this.glowTex, color: col, transparent: true, depthWrite: false,
-      blending: THREE.AdditiveBlending, opacity: known ? 0.7 : 0.2,
-    }));
+    const h = ((hue % 360) + 360) % 360 / 360;
+    const col = new THREE.Color().setHSL(h, 0.85, known ? 0.58 : 0.42);
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.glowTex, color: col, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: known ? 0.78 : 0.18 }));
     sp.scale.set(scale, scale, 1);
     return sp;
   }
@@ -253,97 +314,25 @@ export class OceanGame {
 
   private buildCreature(s: Species, factor: number, known: boolean): View {
     const r = worldRadius(s.sizeCm, factor);
-    const rx = r * s.bodyRx, ry = r * s.bodyRy, rz = r * s.bodyRz;
-    const group = new THREE.Group();
-    const bodyMats: THREE.MeshStandardMaterial[] = [];
-    const appendages: THREE.Object3D[] = [];
-    let tail: THREE.Object3D | undefined;
-    let pulse = false;
+    const mesh = createFishMesh(s, factor, known);
+    const { group, tail, appendages, bodyMats, pulse } = mesh;
 
-    const baseCol = known ? new THREE.Color().setHSL((s.hue % 360) / 360, 0.8, 0.6) : new THREE.Color().setHSL(0.57, 0.16, 0.52);
-    const mat = (extra?: Partial<THREE.MeshStandardMaterialParameters>) => {
-      const m = new THREE.MeshStandardMaterial({
-        color: baseCol.clone(), emissive: baseCol.clone(),
-        emissiveIntensity: known ? (s.danger >= 2 ? 0.7 : 0.85) : 0.16,
-        roughness: 0.5, metalness: 0, transparent: true, opacity: known ? 0.95 : 0.5, ...extra,
-      });
-      bodyMats.push(m); return m;
-    };
-
-    const sphere = (R: number) => new THREE.SphereGeometry(R, 18, 14);
-
-    if (s.key === 'jellyfish') {
-      pulse = true;
-      const bell = new THREE.Mesh(new THREE.SphereGeometry(rx, 20, 14, 0, Math.PI * 2, 0, Math.PI / 2), mat({ opacity: known ? 0.7 : 0.35 }));
-      bell.scale.set(1, ry / rx * 1.1, 1); group.add(bell);
-      const tg = new THREE.Group(); group.add(tg); appendages.push(tg);
-      for (let k = -3; k <= 3; k++) {
-        const len = ry * (1.6 + Math.random() * 0.6);
-        const t = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.14, len, 5), mat());
-        t.position.set(k * rx * 0.22, -len / 2, 0); tg.add(t);
-      }
-    } else if (s.key === 'octopus') {
-      const head = new THREE.Mesh(sphere(rx), mat()); head.scale.set(1, ry / rx, rz / rx); group.add(head);
-      const ag = new THREE.Group(); group.add(ag); appendages.push(ag);
-      for (let k = 0; k < 8; k++) {
-        const an = (k / 8) * Math.PI * 2; const len = ry * 1.7;
-        const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.3, len, 5), mat());
-        arm.position.set(Math.cos(an) * rx * 0.5, -ry * 0.4 - len / 2, Math.sin(an) * rz * 0.5);
-        ag.add(arm);
-      }
-    } else if (s.key === 'turtle') {
-      const shell = new THREE.Mesh(sphere(rx), mat()); shell.scale.set(1, ry / rx * 0.55, rz / rx * 1.1); group.add(shell);
-      const head = new THREE.Mesh(sphere(ry * 0.5), mat()); head.position.set(rx * 0.95, 0, 0); group.add(head);
-      const fmat = mat({ emissiveIntensity: known ? 0.6 : 0.14 });
-      [[-0.7, 1], [-0.7, -1], [0.5, 1], [0.5, -1]].forEach(([fx, fz]) => {
-        const fl = new THREE.Mesh(new THREE.ConeGeometry(ry * 0.45, rx * 0.9, 6), fmat);
-        fl.position.set(rx * fx, -ry * 0.1, rz * 0.7 * fz); fl.rotation.z = Math.PI / 2 * fx; fl.rotation.x = fz * 0.4;
-        group.add(fl); appendages.push(fl);
-      });
-    } else if (s.key === 'ray') {
-      const disc = new THREE.Mesh(sphere(rx), mat()); disc.scale.set(1, ry / rx * 0.22, rz / rx * 1.5); group.add(disc);
-      const t = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.22, rx * 1.7, 5), mat());
-      t.position.set(-rx * 1.2, 0, 0); t.rotation.z = Math.PI / 2; group.add(t); tail = t;
-    } else if (s.key === 'plankton') {
-      const core = new THREE.Mesh(sphere(rx * 0.8), mat()); group.add(core);
-    } else {
-      // generic fish: ellipsoid body + tail fin + dorsal + pectoral
-      const body = new THREE.Mesh(sphere(r), mat());
-      body.scale.set(rx / r, ry / r, rz / r); group.add(body);
-      const tg = new THREE.Group(); tg.position.set(-rx * 0.9, 0, 0); group.add(tg); tail = tg;
-      const tcone = new THREE.Mesh(new THREE.ConeGeometry(ry * 1.1, rx * 1.1, 4), mat());
-      tcone.rotation.z = -Math.PI / 2; tcone.position.set(-rx * 0.45, 0, 0); tcone.scale.set(1, 1, 0.25); tg.add(tcone);
-      // dorsal fin
-      const dorsalH = s.key === 'shark' ? ry * 1.9 : ry * 1.0;
-      const dorsal = new THREE.Mesh(new THREE.ConeGeometry(rx * 0.4, dorsalH, 4), mat());
-      dorsal.position.set(0, ry * 0.8, 0); dorsal.scale.set(1, 1, 0.18); group.add(dorsal);
-      // pectoral fin
-      const pec = new THREE.Mesh(new THREE.ConeGeometry(ry * 0.5, rx * 0.7, 4), mat());
-      pec.rotation.z = Math.PI / 2; pec.position.set(rx * 0.1, -ry * 0.4, rz * 0.7); pec.scale.set(1, 1, 0.16); group.add(pec);
-      // eye
-      const eye = new THREE.Mesh(new THREE.SphereGeometry(Math.max(0.18, ry * 0.16), 8, 8), new THREE.MeshBasicMaterial({ color: 0x04121f }));
-      eye.position.set(rx * 0.62, ry * 0.18, rz * 0.62); group.add(eye);
-      const eye2 = eye.clone(); eye2.position.z = -rz * 0.62; group.add(eye2);
-      // glowing dots (player / dotfish)
-      if (s.key === 'dotfish') {
-        const dotMat = new THREE.MeshBasicMaterial({ color: 0xdfffff, transparent: true, opacity: 0.9 });
-        for (let i = 0; i < 7; i++) {
-          const a = (i / 7) * Math.PI * 2;
-          const dot = new THREE.Mesh(new THREE.SphereGeometry(0.18, 6, 6), dotMat);
-          dot.position.set(Math.cos(a) * rx * 0.45, Math.sin(a) * ry * 0.4, rz * 0.95); group.add(dot);
-        }
-      }
-    }
-
-    // dark rim for dangerous creatures
+    // visual wrappers
     if (known && s.danger >= 2) {
-      const rim = new THREE.Mesh(sphere(r * 1.06), new THREE.MeshBasicMaterial({ color: 0x0a0206, side: THREE.BackSide, transparent: true, opacity: 0.5 }));
-      rim.scale.set(rx / r, ry / r, rz / r); group.add(rim);
+      const rim = new THREE.Mesh(new THREE.SphereGeometry(r * 1.06, 10, 8), new THREE.MeshBasicMaterial({ color: 0x0a0206, side: THREE.BackSide, transparent: true, opacity: 0.5 }));
+      rim.scale.set(s.bodyRx, s.bodyRy, s.bodyRz); group.add(rim);
       bodyMats.forEach((m) => { m.emissive.lerp(tmpC.set(0xff2d4a), 0.3); });
     }
 
     const glow = this.makeGlow(s.hue, r * 3.2, known); group.add(glow);
     const ring = this.makeRing(r * Math.max(s.bodyRx, s.bodyRy) + 1.4); group.add(ring);
+
+    try {
+      const gsm = (glow.material as THREE.SpriteMaterial);
+      if (s.danger >= 2) { gsm.color.set(0xff5a6e); gsm.opacity = known ? 0.92 : 0.32; (ring.material as THREE.MeshBasicMaterial).color.set(0xff5a6e); (ring.material as THREE.MeshBasicMaterial).opacity = 0.9; }
+      else if (s.sizeCm < 40) { gsm.color.set(0x3fe6c8); gsm.opacity = known ? 0.86 : 0.2; (ring.material as THREE.MeshBasicMaterial).color.set(0x3fe6c8); (ring.material as THREE.MeshBasicMaterial).opacity = 0.75; }
+      else { gsm.color.set(0x8b9bff); gsm.opacity = known ? 0.78 : 0.18; }
+    } catch {}
 
     let unknownMark: THREE.Sprite | undefined;
     if (!known) {
@@ -351,19 +340,20 @@ export class OceanGame {
       const ctx = c.getContext('2d')!; ctx.fillStyle = '#bcd6e6'; ctx.font = 'bold 46px sans-serif';
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('?', 32, 34);
       unknownMark = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false }));
-      unknownMark.scale.set(2.2, 2.2, 1); unknownMark.position.set(0, ry + 2.5, 0); group.add(unknownMark);
+      unknownMark.scale.set(2.2, 2.2, 1); unknownMark.position.set(0, r * Math.max(s.bodyRy, 1) + 2.5, 0); group.add(unknownMark);
     }
 
     const setKnown = (kn: boolean) => {
-      const col = kn ? new THREE.Color().setHSL((s.hue % 360) / 360, 0.8, 0.6) : new THREE.Color().setHSL(0.57, 0.16, 0.52);
-      bodyMats.forEach((m) => {
-        m.color.copy(col); m.emissive.copy(col);
-        if (kn && s.danger >= 2) m.emissive.lerp(tmpC.set(0xff2d4a), 0.3);
-        m.emissiveIntensity = kn ? (s.danger >= 2 ? 0.7 : 0.85) : 0.16; m.opacity = kn ? 0.95 : 0.5;
-      });
-      (glow.material as THREE.SpriteMaterial).color.copy(col);
-      (glow.material as THREE.SpriteMaterial).opacity = kn ? 0.7 : 0.2;
-      if (unknownMark) unknownMark.visible = !kn;
+      const toCol = kn ? new THREE.Color().setHSL((s.hue % 360) / 360, 0.8, 0.6) : new THREE.Color().setHSL(0.57, 0.16, 0.52);
+      const fromCol = (bodyMats[0] && bodyMats[0].color) ? bodyMats[0].color.clone() : new THREE.Color().copy(toCol);
+      const fromEmiss = (bodyMats[0] && typeof bodyMats[0].emissiveIntensity === 'number') ? bodyMats[0].emissiveIntensity : (kn ? 0.16 : 0.85);
+      const toEmiss = kn ? (s.danger >= 2 ? 0.7 : 0.85) : 0.16;
+      const fromOp = (bodyMats[0] && typeof bodyMats[0].opacity === 'number') ? bodyMats[0].opacity : (kn ? 0.5 : 0.95);
+      const toOp = kn ? 0.95 : 0.5;
+      const glowMat = glow.material as THREE.SpriteMaterial;
+      const fromGlowOp = typeof glowMat.opacity === 'number' ? glowMat.opacity : (kn ? 0.2 : 0.7);
+      const toGlowOp = kn ? 0.7 : 0.2;
+      this.discoveryAnims.push({ bodyMats, glowMat, unknownMark, start: this.t, dur: 0.9, fromCol: fromCol.clone(), toCol: toCol.clone(), fromEmiss, toEmiss, fromOp, toOp, fromGlowOp, toGlowOp });
     };
 
     return { group, tail, appendages, glow, ring, bodyMats, unknownMark, pulse, setKnown };
@@ -536,6 +526,28 @@ export class OceanGame {
   private update(dt: number): void {
     this.t += dt;
     const rm = this.opts.reducedMotion();
+    // process discovery animations
+    if (this.discoveryAnims.length) {
+      for (let i = this.discoveryAnims.length - 1; i >= 0; i--) {
+        const a = this.discoveryAnims[i];
+        const pRaw = (this.t - a.start) / a.dur; const p = Math.max(0, Math.min(1, pRaw));
+        // smoothstep-like ease
+        const e = p * p * (3 - 2 * p);
+        for (const m of a.bodyMats) {
+          m.color.copy(a.fromCol).lerp(a.toCol, e);
+          m.emissive.copy(a.fromCol).lerp(a.toCol, e);
+          m.emissiveIntensity = a.fromEmiss + (a.toEmiss - a.fromEmiss) * e;
+          m.opacity = a.fromOp + (a.toOp - a.fromOp) * e;
+        }
+        a.glowMat.color.copy(a.fromCol).lerp(a.toCol, e);
+        a.glowMat.opacity = a.fromGlowOp + (a.toGlowOp - a.fromGlowOp) * e;
+        if (a.unknownMark) {
+          const mat = a.unknownMark.material as THREE.SpriteMaterial; mat.opacity = 1 - e; mat.needsUpdate = true;
+          if (p >= 1) a.unknownMark.visible = a.toOp < 0.6;
+        }
+        if (p >= 1) this.discoveryAnims.splice(i, 1);
+      }
+    }
     // input
     const acc = 60;
     let ax = 0, ay = 0;
@@ -594,6 +606,16 @@ export class OceanGame {
         let y = arr.getY(i) + dt * 3; if (y > 46) y = -46; arr.setY(i, y);
       }
       arr.needsUpdate = true;
+      // bubbles rise
+      if (this.bubblePoints) {
+        const barg = this.bubblePoints.geometry.getAttribute('position') as THREE.BufferAttribute;
+        for (let i = 0; i < barg.count; i++) {
+          let y = barg.getY(i) + dt * (6 + (i % 5));
+          if (y > WY + 30) { y = -WY - 12; barg.setX(i, (Math.random() - 0.5) * WX * 1.6); }
+          barg.setY(i, y);
+        }
+        barg.needsUpdate = true;
+      }
     }
 
     // stats throttle
@@ -613,16 +635,18 @@ export class OceanGame {
   }
 
   // ---------- animation of views ----------
-  private animateView(v: View, dir: number, vel: THREE.Vector3, phase: number, focused: boolean, fast: number): void {
+  private animateView(v: View, dir: number, vel: THREE.Vector3, phase: number, focused: boolean, fast: number, ampMult = 1): void {
     const rm = this.opts.reducedMotion();
     const targetY = dir === 1 ? 0 : Math.PI;
     let dy = ((targetY - v.group.rotation.y + Math.PI) % (Math.PI * 2)) - Math.PI;
     v.group.rotation.y += dy * 0.18;
     v.group.rotation.z = THREE.MathUtils.clamp(-vel.y * 0.02, -0.5, 0.5);
     if (!rm) {
-      if (v.tail) v.tail.rotation.y = Math.sin(this.t * (4 + fast * 3) + phase) * (0.35 + fast * 0.2);
-      if (v.pulse) { const s = 1 + Math.sin(this.t * 2 + phase) * 0.09; v.group.scale.setY(s); }
-      for (const ap of v.appendages) ap.rotation.x = Math.sin(this.t * 2 + phase) * 0.18;
+      const baseFreq = 4 + fast * 3 + ampMult * 1.6;
+      const baseAmp = (0.35 + fast * 0.2) * ampMult * (v.pulse ? 1.18 : 1);
+      if (v.tail) v.tail.rotation.y = Math.sin(this.t * baseFreq + phase) * baseAmp;
+      if (v.pulse) { const s = 1 + Math.sin(this.t * 2 + phase) * 0.12 * ampMult; v.group.scale.setY(s); }
+      for (const ap of v.appendages) ap.rotation.x = Math.sin(this.t * 2 + phase) * (0.18 * ampMult);
     }
     v.ring.visible = focused;
     if (focused && !rm) v.ring.scale.setScalar(1 + Math.sin(this.t * 4) * 0.04);
@@ -647,7 +671,20 @@ export class OceanGame {
       n.view.group.position.copy(n.pos);
       const fast = n.s.behavior === 'small' ? 1 : n.s.behavior === 'school' ? 0.6 : 0.2;
       const focused = this.focusKey === n.s.key && Math.hypot(n.pos.x - this.px, n.pos.y - this.py) < 30;
-      this.animateView(n.view, n.dir, n.vel, n.phase, focused, fast);
+      const amp = 1 + (n.s.danger >= 2 ? 0.9 : (n.s.sizeCm > 80 ? 0.35 : (n.s.sizeCm < 40 ? 0.22 : 0.0)));
+      this.animateView(n.view, n.dir, n.vel, n.phase, focused, fast, amp);
+      // predator visual emphasis
+      const dist = Math.hypot(n.pos.x - this.px, n.pos.y - this.py);
+      if (n.s.danger >= 2) {
+        n.view.ring.visible = true;
+        const mat = n.view.ring.material as THREE.MeshBasicMaterial;
+        mat.color.set(0xff4a5a);
+        const scale = 1 + Math.max(0, 0.45 - dist / 120) + (Math.sin(this.t * 3 + n.phase) * 0.04);
+        n.view.ring.scale.setScalar(scale);
+      } else {
+        // lesser ring for non-danger - visible when focused
+        n.view.ring.visible = focused;
+      }
     }
 
     // camera follow + sway
@@ -661,7 +698,18 @@ export class OceanGame {
     // env updates
     if (!this.opts.reducedMotion()) {
       this.waterMat.uniforms.uTime.value = this.t;
-      for (let i = 0; i < this.shafts.length; i++) (this.shafts[i].material as THREE.MeshBasicMaterial).opacity = 0.4 + Math.sin(this.t * 0.5 + i) * 0.16;
+      for (let i = 0; i < this.shafts.length; i++) {
+        const s = this.shafts[i]; const m = s.material as THREE.MeshBasicMaterial;
+        m.opacity = 0.35 + Math.sin(this.t * (s.userData.speed ?? 0.4) + (s.userData.phase ?? i)) * 0.16;
+        s.rotation.z = (Math.random() - 0.5) * 0.06 + Math.sin(this.t * 0.08 + (s.userData.phase ?? i)) * 0.06;
+      }
+      // seaweed sway
+      for (const sw of this.seaweeds) {
+        const ud = (sw as any).userData ?? { sway: 0.8, phase: 0 };
+        sw.rotation.z = Math.sin(this.t * 0.9 + ud.phase) * (0.08 * ud.sway);
+      }
+      // follow player light
+      if (this.playerLight) this.playerLight.position.set(this.px, this.py + 6, 6 + Math.sin(this.t * 1.6) * 1.2);
     }
 
     // high contrast tweak
