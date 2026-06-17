@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from './state/AppContext';
 import { byKey, text, sizeScale } from './data/species';
 import type { GameStats, CueInfo, SurveyItem, RadarData } from './engine/game';
@@ -12,10 +12,12 @@ import { Encyclopedia } from './components/Encyclopedia';
 import { Mission } from './components/Mission';
 import { Quiz } from './components/Quiz';
 import { Tutorial } from './components/Tutorial';
+import { CurriculumPanel } from './components/CurriculumPanel';
 import { DotMatrix } from './components/DotMatrix';
 import { bridge } from './embed/postMessageBridge';
+import { computeCurriculumLevel } from './data/curriculum';
 
-type Overlay = 'none' | 'tutorial' | 'settings' | 'encyclopedia' | 'mission' | 'quiz' | 'dotpad';
+type Overlay = 'none' | 'tutorial' | 'settings' | 'encyclopedia' | 'mission' | 'quiz' | 'dotpad' | 'learn';
 
 export default function App() {
   const a = useApp();
@@ -33,6 +35,10 @@ export default function App() {
   const surveyRef = useRef<() => void>(() => {});
   // embed mode skips tutorial on first load — treat it as already completed
   const tutorialDoneRef = useRef(embedMode);
+
+  // Derive curriculum level from discovered species (tier-based unlock)
+  const curriculumLevel = useMemo(() => computeCurriculumLevel(discovered), [discovered]);
+  const prevCurriculumLevelRef = useRef(curriculumLevel);
 
   const paused = overlay !== 'none';
   const blocking = paused;
@@ -80,6 +86,15 @@ export default function App() {
   const markReady = useCallback(() => { if (!readyRef.current) { readyRef.current = true; setReady(true); } }, []);
   const onStats = useCallback((s: GameStats) => { setStats(s); markReady(); }, [markReady]);
   useEffect(() => { const t = setTimeout(markReady, 2500); return () => clearTimeout(t); }, [markReady]);
+
+  // Announce curriculum level-up when a new tier is unlocked
+  useEffect(() => {
+    if (curriculumLevel > prevCurriculumLevelRef.current) {
+      prevCurriculumLevelRef.current = curriculumLevel;
+      const msg = ui.learnLevelUp(curriculumLevel);
+      a.announce(msg); a.speak(msg); a.sfx('levelup');
+    }
+  }, [curriculumLevel, ui, a]);
 
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
@@ -157,6 +172,7 @@ export default function App() {
       <div className="game-layer" aria-hidden={blocking ? true : undefined}>
         <GameCanvas
           paused={paused}
+          curriculumLevel={curriculumLevel}
           onStats={onStats}
           onDiscover={onDiscover}
           onFocus={onFocus}
@@ -185,8 +201,10 @@ export default function App() {
           onEncyclopedia={() => { a.sfx('select'); setOverlay('encyclopedia'); }}
           onMission={() => { a.sfx('select'); setOverlay('mission'); }}
           onQuiz={() => { a.sfx('select'); setOverlay('quiz'); }}
+          onLearn={() => { a.sfx('select'); setOverlay('learn'); }}
           onDotpad={() => { a.sfx('select'); setOverlay('dotpad'); }}
           onTutorial={() => { a.sfx('select'); setOverlay('tutorial'); }}
+          curriculumLevel={curriculumLevel}
         />
       </div>
 
@@ -223,6 +241,13 @@ export default function App() {
       {overlay === 'encyclopedia' && <Encyclopedia discovered={discovered} onClose={() => setOverlay('none')} />}
       {overlay === 'mission' && <Mission discovered={discovered} level={stats.level} onClose={() => setOverlay('none')} />}
       {overlay === 'quiz' && <Quiz discovered={discovered} onClose={() => setOverlay('none')} />}
+      {overlay === 'learn' && (
+        <CurriculumPanel
+          discovered={discovered}
+          curriculumLevel={curriculumLevel}
+          onClose={() => setOverlay('none')}
+        />
+      )}
       {overlay === 'dotpad' && (
         <div className="overlay-scrim center" onClick={() => setOverlay('none')}>
           <div className="dotpad-modal glass" role="dialog" aria-modal="true" aria-label={ui.navDotpad} onClick={(e) => e.stopPropagation()}>

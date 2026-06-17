@@ -156,6 +156,7 @@ export class OceanGame {
 
   private npcs: Npc[] = [];
   private discovered = new Set<string>();
+  private maxTier = 5;           // curriculum gate — only spawn species with tier ≤ this
   private keys: Record<string, boolean> = {};
   private pointer: { x: number; y: number } | null = null;
   private focusKey: string | null = null; private focusTimer = 0; private statTick = 0;
@@ -494,16 +495,21 @@ export class OceanGame {
   private playerPower(): number { return PLAYER_SPECIES.sizeCm * this.sizeFactor; }
   private xpNext(): number { return 200 + (this.level - 1) * 160; }
 
+  /** Restrict spawnable species to tier ≤ n (curriculum level gate). */
+  setMaxTier(n: number): void { this.maxTier = Math.max(1, Math.min(5, n)); }
+
   private pickSpecies(): Species {
     const power = this.playerPower();
+    const pool = SPECIES.filter((s) => s.tier <= this.maxTier);
     const weighted: Species[] = [];
-    for (const s of SPECIES) {
+    for (const s of pool) {
       let w = s.rarity === 'common' ? 5 : s.rarity === 'uncommon' ? 3 : s.rarity === 'rare' ? 2 : 1;
       const ratio = s.sizeCm / power;
       if (ratio > 0.12 && ratio < 3) w += 2;
       if (ratio >= 3) w = Math.max(1, w - 2);
       for (let i = 0; i < w; i++) weighted.push(s);
     }
+    if (!weighted.length) return pool[0] ?? SPECIES[0];
     return weighted[Math.floor(Math.random() * weighted.length)];
   }
 

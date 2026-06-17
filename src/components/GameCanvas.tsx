@@ -4,6 +4,7 @@ import { useApp } from '../state/AppContext';
 
 interface Props {
   paused: boolean;
+  curriculumLevel?: number;
   onStats: (s: GameStats) => void;
   onDiscover: (key: string, info?: CueInfo) => void;
   onFocus: (key: string | null) => void;
@@ -21,7 +22,7 @@ function webglAvailable(): boolean {
   } catch { return false; }
 }
 
-export function GameCanvas({ paused, onStats, onDiscover, onFocus, onEvent, onRadar, onSurvey, registerScan, registerSurvey }: Props) {
+export function GameCanvas({ paused, curriculumLevel = 5, onStats, onDiscover, onFocus, onEvent, onRadar, onSurvey, registerScan, registerSurvey }: Props) {
   const { highContrast, reducedMotion, audioCues, cue } = useApp();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const gameRef = useRef<OceanGame | null>(null);
@@ -29,6 +30,9 @@ export function GameCanvas({ paused, onStats, onDiscover, onFocus, onEvent, onRa
 
   const flags = useRef({ highContrast, reducedMotion, paused, audioCues });
   flags.current = { highContrast, reducedMotion, paused, audioCues };
+
+  // Propagate curriculum tier gate to engine whenever it changes
+  useEffect(() => { gameRef.current?.setMaxTier(curriculumLevel); }, [curriculumLevel]);
 
   const cbs = useRef({ onStats, onDiscover, onFocus, onEvent, onRadar, onSurvey, cue });
   cbs.current = { onStats, onDiscover, onFocus, onEvent, onRadar, onSurvey, cue };

@@ -132,6 +132,35 @@ export interface UIStrings {
   quizModeDesc: string;
   quizDescQuestion: string;
   quizListenDesc: string;
+  // curriculum / learn mode
+  navLearn: string;
+  learnTitle: string;
+  learnLevelLabel: (n: number) => string;
+  learnLocked: string;
+  learnUnlockHint: string;
+  learnReveal: string;
+  learnCompare: string;
+  learnBlind: string;
+  learnRevealHint: string;
+  learnCompareHint: string;
+  learnBlindHint: string;
+  learnFeelIt: string;
+  learnRevealIn: (n: number) => string;
+  learnAgain: string;
+  learnNext: string;
+  learnDone: string;
+  learnLevelUp: (n: number) => string;
+  learnProgress: (a: number, b: number) => string;
+  learnObjective: string;
+  learnFocus: string;
+  learnStartSession: (mode: string) => string;
+  learnSwitchHint: string;
+  learnBlindQuestion: string;
+  learnSpeciesCount: (n: number) => string;
+  learnNowShowing: (n: string) => string;
+  learnDiscoverFirst: string;
+  learnSessionDone: string;
+  learnScore: (a: number, b: number) => string;
 }
 
 export const UI: Record<Lang, UIStrings> = {
@@ -205,6 +234,34 @@ export const UI: Record<Lang, UIStrings> = {
     quizModeShape: '촉각 실루엣', quizModeDesc: '설명 듣기',
     quizDescQuestion: '이 설명은 어떤 생물일까요?',
     quizListenDesc: '설명 다시 듣기',
+    navLearn: '학습',
+    learnTitle: '촉각 커리큘럼',
+    learnLevelLabel: (n) => `${n}단계`,
+    learnLocked: '잠금',
+    learnUnlockHint: '',
+    learnReveal: '순차 공개',
+    learnCompare: '비교 학습',
+    learnBlind: '촉각 퀴즈',
+    learnRevealHint: 'Dot Pad로 먼저 느끼고, 3초 뒤 이름을 공개해요.',
+    learnCompareHint: '두 생물의 패턴을 번갈아 느끼며 차이점을 비교해요.',
+    learnBlindHint: 'Dot Pad 패턴만 보고 어떤 생물인지 맞혀요.',
+    learnFeelIt: '지금 느껴보세요',
+    learnRevealIn: (n) => `${n}초 후 공개`,
+    learnAgain: '다시 느끼기',
+    learnNext: '다음',
+    learnDone: '완료',
+    learnLevelUp: (n) => `🎉 ${n}단계가 열렸어요!`,
+    learnProgress: (a, b) => `${a} / ${b}`,
+    learnObjective: '학습 목표',
+    learnFocus: '촉각 집중 포인트',
+    learnStartSession: (mode) => `${mode} 시작`,
+    learnSwitchHint: '← → 키 또는 버튼으로 전환',
+    learnBlindQuestion: '이 촉각 패턴은 어떤 생물일까요?',
+    learnSpeciesCount: (n) => `이 단계 생물 ${n}종`,
+    learnNowShowing: (n) => `지금 Dot Pad: ${n}`,
+    learnDiscoverFirst: '이 단계를 열려면 먼저 바다에서 생물을 발견하세요.',
+    learnSessionDone: '학습 완료! 잘 하셨어요.',
+    learnScore: (a, b) => `정답 ${a} / ${b}`,
   },
   en: {
     appName: 'Dot Ocean', tagline: 'Explore the ocean by touch',
@@ -276,5 +333,33 @@ export const UI: Record<Lang, UIStrings> = {
     quizModeShape: 'Tactile silhouette', quizModeDesc: 'Listen to a description',
     quizDescQuestion: 'Which creature does this describe?',
     quizListenDesc: 'Hear the description again',
+    navLearn: 'Learn',
+    learnTitle: 'Tactile Curriculum',
+    learnLevelLabel: (n) => `Level ${n}`,
+    learnLocked: 'Locked',
+    learnUnlockHint: '',
+    learnReveal: 'Progressive Reveal',
+    learnCompare: 'Compare',
+    learnBlind: 'Blind Quiz',
+    learnRevealHint: 'Feel the Dot Pad pattern first, then the name is revealed after 3 seconds.',
+    learnCompareHint: 'Alternate between two creatures on the Dot Pad and compare their patterns.',
+    learnBlindHint: 'Identify the creature from its Dot Pad pattern alone.',
+    learnFeelIt: 'Feel it now',
+    learnRevealIn: (n) => `Reveals in ${n}s`,
+    learnAgain: 'Feel again',
+    learnNext: 'Next',
+    learnDone: 'Done',
+    learnLevelUp: (n) => `🎉 Level ${n} unlocked!`,
+    learnProgress: (a, b) => `${a} / ${b}`,
+    learnObjective: 'Learning objective',
+    learnFocus: 'Tactile focus',
+    learnStartSession: (mode) => `Start ${mode}`,
+    learnSwitchHint: '← → keys or buttons to switch',
+    learnBlindQuestion: 'Which creature makes this tactile pattern?',
+    learnSpeciesCount: (n) => `${n} creatures at this level`,
+    learnNowShowing: (n) => `Dot Pad now: ${n}`,
+    learnDiscoverFirst: 'Discover creatures in the ocean to unlock this level.',
+    learnSessionDone: 'Session complete! Great work.',
+    learnScore: (a, b) => `${a} / ${b} correct`,
   },
 };
