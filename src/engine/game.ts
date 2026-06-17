@@ -164,7 +164,12 @@ export class OceanGame {
   private camFocus = new THREE.Vector3();
 
   private water!: THREE.Mesh; private waterMat!: THREE.ShaderMaterial;
-  private particles!: THREE.Points; private shafts: THREE.Mesh[] = [];
+  private particles!: THREE.Points;
+  private shafts: THREE.Mesh[] = [];
+  private playerLight!: THREE.PointLight;
+  private floorMat!: THREE.ShaderMaterial;
+  private bubbles!: THREE.Points; private bubblePos!: Float32Array;
+  private coralArms: Array<{ mesh: THREE.Mesh; baseZ: number; phase: number }> = [];
   private glowTex = radialTexture(180, 240, 255);
   private tex: Record<string, THREE.Texture> = {};
 
@@ -205,6 +210,8 @@ export class OceanGame {
     this.scene.add(new THREE.AmbientLight(0x335577, 0.7));
     const d = new THREE.DirectionalLight(0xbfe9ff, 0.85); d.position.set(0.3, 1, 0.4); this.scene.add(d);
     const p = new THREE.PointLight(0x39d6ff, 0.6, 160); p.position.set(0, 6, 30); this.scene.add(p);
+    this.playerLight = new THREE.PointLight(0x6af4ff, 0.85, 45);
+    this.playerLight.position.set(0, 0, 8); this.scene.add(this.playerLight);
   }
 
   private buildWater(): void {
@@ -256,11 +263,28 @@ export class OceanGame {
     );
     cave.position.set(8, 2, -120); this.scene.add(cave);
 
-    // seafloor
-    const floor = new THREE.Mesh(
-      new THREE.PlaneGeometry(320, 240, 1, 1),
-      new THREE.MeshStandardMaterial({ color: 0x05111d, roughness: 1, metalness: 0 }),
-    );
+    // seafloor — animated caustic light shader
+    this.floorMat = new THREE.ShaderMaterial({
+      uniforms: { uTime: { value: 0 }, uBase: { value: new THREE.Color(0x05111d) } },
+      vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+      fragmentShader: `
+        uniform float uTime; uniform vec3 uBase; varying vec2 vUv;
+        float caustic(vec2 p, float t){
+          vec2 q = p * 7.0;
+          float a = sin(q.x + sin(q.y * 0.9 + t * 0.28) + t * 0.38);
+          float b = sin(q.y + sin(q.x * 1.1 - t * 0.46) - t * 0.22);
+          return max(0.0, a * b);
+        }
+        void main(){
+          float c1 = caustic(vUv, uTime);
+          float c2 = caustic(vUv * 1.4 + vec2(0.31, 0.57), uTime * 0.65 + 0.9);
+          float c = (c1 + c2) * 0.5;
+          vec3 glow = vec3(0.04, 0.32, 0.52);
+          vec3 col = uBase + glow * c * 0.75;
+          gl_FragColor = vec4(col, 1.0);
+        }`,
+    });
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(320, 240, 1, 1), this.floorMat);
     floor.rotation.x = -Math.PI / 2; floor.position.set(0, -WY - 4, -30); this.scene.add(floor);
 
     // corals
@@ -276,21 +300,23 @@ export class OceanGame {
         const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.5, h, 6), mat);
         arm.position.y = h / 2;
         arm.rotation.z = (a - (arms - 1) / 2) * 0.42;
+        this.coralArms.push({ mesh: arm, baseZ: arm.rotation.z, phase: i * 1.3 + a * 2.1 });
         g.add(arm);
       }
       g.position.set(-WX + 6 + (i / 9) * (WX * 2 - 12) + (Math.random() - 0.5) * 8, -WY - 3, -6 - Math.random() * 30);
       this.scene.add(g);
     }
 
-    // light shafts
+    // light shafts — 10 shafts with chromatic color variation
     const stex = shaftTexture();
-    for (let i = 0; i < 5; i++) {
+    const shaftTints = [0xffffff, 0xb0f4ff, 0xffddb0, 0xd0f8ff, 0xffe8b0, 0xb8fdf0, 0xfff0cc, 0xb0eaff, 0xffe0c8, 0xcafff8];
+    for (let i = 0; i < 10; i++) {
       const m = new THREE.Mesh(
-        new THREE.PlaneGeometry(10 + Math.random() * 8, 90),
-        new THREE.MeshBasicMaterial({ map: stex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.5 }),
+        new THREE.PlaneGeometry(7 + Math.random() * 10, 90),
+        new THREE.MeshBasicMaterial({ map: stex, color: shaftTints[i], transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.42 }),
       );
-      m.position.set(-WX + 12 + i * 26 + (Math.random() - 0.5) * 8, 14, -20 - Math.random() * 30);
-      m.rotation.z = (Math.random() - 0.5) * 0.3;
+      m.position.set(-WX + 8 + i * 14 + (Math.random() - 0.5) * 6, 14, -18 - Math.random() * 38);
+      m.rotation.z = (Math.random() - 0.5) * 0.4;
       this.shafts.push(m); this.scene.add(m);
     }
   }
@@ -309,6 +335,27 @@ export class OceanGame {
       blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true,
     }));
     this.scene.add(this.particles);
+    this.buildBubbles();
+  }
+
+  private buildBubbles(): void {
+    const n = 80; const pos = new Float32Array(n * 3);
+    this.bubblePos = new Float32Array(n * 3); // [x-drift, y-rise, phase]
+    for (let i = 0; i < n; i++) {
+      pos[i * 3]     = (Math.random() - 0.5) * WX * 2;
+      pos[i * 3 + 1] = -WY + (Math.random() - 0.5) * WY;
+      pos[i * 3 + 2] = -20 + Math.random() * 35;
+      this.bubblePos[i * 3]     = (Math.random() - 0.5) * 0.5;
+      this.bubblePos[i * 3 + 1] = 3 + Math.random() * 5;
+      this.bubblePos[i * 3 + 2] = Math.random() * Math.PI * 2;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    this.bubbles = new THREE.Points(geo, new THREE.PointsMaterial({
+      color: 0xb0eeff, size: 0.38, transparent: true, opacity: 0.52,
+      blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true,
+    }));
+    this.scene.add(this.bubbles);
   }
 
   // ---------- creature meshes ----------
@@ -656,13 +703,30 @@ export class OceanGame {
       if (!this.discovered.has(nearest.s.key)) { this.focusTimer = 4.5; this.discover(nearest); }
     } else if (this.focusTimer > 0) { this.focusTimer -= dt; if (this.focusTimer <= 0) this.focus(null); }
 
-    // particles drift
+    // particles drift — plankton current simulation
     if (!rm) {
       const arr = this.particles.geometry.getAttribute('position') as THREE.BufferAttribute;
       for (let i = 0; i < arr.count; i++) {
-        let y = arr.getY(i) + dt * 3; if (y > 46) y = -46; arr.setY(i, y);
+        let x = arr.getX(i) + Math.sin(this.t * 0.22 + i * 0.37) * dt * 1.1 + dt * 0.7;
+        let y = arr.getY(i) + dt * (1.4 + Math.sin(this.t * 0.48 + i * 0.65) * 0.7);
+        if (x > 75) x = -75; else if (x < -75) x = 75;
+        if (y > 46) y = -46;
+        arr.setX(i, x); arr.setY(i, y);
       }
       arr.needsUpdate = true;
+
+      // bubble rise + horizontal wobble
+      const bArr = this.bubbles.geometry.getAttribute('position') as THREE.BufferAttribute;
+      for (let i = 0; i < bArr.count; i++) {
+        let x = bArr.getX(i) + Math.sin(this.t * 1.6 + this.bubblePos[i * 3 + 2]) * dt * 0.35;
+        let y = bArr.getY(i) + this.bubblePos[i * 3 + 1] * dt;
+        if (y > WY + 5) {
+          y = -WY - 2 + Math.random() * 8;
+          x = (Math.random() - 0.5) * WX * 2;
+        }
+        bArr.setX(i, x); bArr.setY(i, y);
+      }
+      bArr.needsUpdate = true;
     }
 
     // spatial audio "sonar": cycle a panned ping through nearby creatures
@@ -755,7 +819,20 @@ export class OceanGame {
     // env updates
     if (!this.opts.reducedMotion()) {
       this.waterMat.uniforms.uTime.value = this.t;
-      for (let i = 0; i < this.shafts.length; i++) (this.shafts[i].material as THREE.MeshBasicMaterial).opacity = 0.4 + Math.sin(this.t * 0.5 + i) * 0.16;
+      this.floorMat.uniforms.uTime.value = this.t * 0.48;
+      // shafts — varied frequency + amplitude for natural godrays
+      for (let i = 0; i < this.shafts.length; i++) {
+        const base = 0.28 + (i % 3) * 0.06;
+        (this.shafts[i].material as THREE.MeshBasicMaterial).opacity = base + Math.sin(this.t * (0.38 + i * 0.06) + i * 1.05) * 0.17;
+      }
+      // coral sway
+      for (const { mesh, baseZ, phase } of this.coralArms) {
+        mesh.rotation.z = baseZ + Math.sin(this.t * 0.72 + phase) * 0.07;
+      }
+      // player bioluminescence — light follows player; depth dims it slightly
+      this.playerLight.position.set(this.px, this.py, 8);
+      const depthT = Math.max(0, (-this.py + WY) / (WY * 2));
+      this.playerLight.intensity = 0.85 - depthT * 0.3;
     }
 
     // high contrast tweak
