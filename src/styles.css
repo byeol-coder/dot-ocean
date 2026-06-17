@@ -41,7 +41,7 @@
   border-radius:30px;padding:7px 14px;backdrop-filter:blur(10px);font-size:13px}
 .found-chip b{font-size:18px;font-weight:800;color:var(--bio)}
 .found-chip small{color:var(--mute)}
-.icon-btn{width:40px;height:40px;border-radius:50%;border:1px solid var(--line);background:var(--glass);
+.icon-btn{width:44px;height:44px;border-radius:50%;border:1px solid var(--line);background:var(--glass);
   backdrop-filter:blur(10px);font-size:17px;display:grid;place-items:center;transition:transform .12s,background .15s}
 .icon-btn:hover{background:var(--glass-2)}.icon-btn:active{transform:scale(.92)}
 

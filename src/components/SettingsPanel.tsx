@@ -63,7 +63,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
   const { ui } = a;
   return (
     <div className="overlay-scrim" onClick={onClose}>
-      <aside className="settings-panel glass" role="dialog" aria-label={ui.settingsTitle} onClick={(e) => e.stopPropagation()}>
+      <aside className="settings-panel glass" role="dialog" aria-modal="true" aria-label={ui.settingsTitle} onClick={(e) => e.stopPropagation()}>
         <div className="panel-head">
           <h2>{ui.settingsTitle}</h2>
           <button className="icon-btn" onClick={onClose} aria-label={ui.close}>✕</button>

@@ -123,7 +123,7 @@ export function Quiz({ discovered, onClose }: { discovered: Set<string>; onClose
           </div>
 
           {picked && (
-            <div className="quiz-reveal">
+            <div className="quiz-reveal" role="status" aria-live="polite">
               <p className={picked === round.answer.key ? 'ok' : 'no'}>
                 {picked === round.answer.key ? ui.quizCorrect(text(round.answer, lang).name) : ui.quizWrong(text(round.answer, lang).name)}
               </p>

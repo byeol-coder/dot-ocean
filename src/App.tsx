@@ -31,6 +31,8 @@ export default function App() {
   const lastFocus = useRef<string | null>(null);
   const scanRef = useRef<() => void>(() => {});
   const surveyRef = useRef<() => void>(() => {});
+  // embed mode skips tutorial on first load — treat it as already completed
+  const tutorialDoneRef = useRef(embedMode);
 
   const paused = overlay !== 'none';
   const blocking = paused;
@@ -80,7 +82,13 @@ export default function App() {
   useEffect(() => { const t = setTimeout(markReady, 2500); return () => clearTimeout(t); }, [markReady]);
 
   useEffect(() => {
-    const h = (e: KeyboardEvent) => { if (e.key === 'Escape' && overlay !== 'tutorial') setOverlay('none'); };
+    const h = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      // Block Escape on first-time tutorial — user must click through to init audio.
+      // Once completed (or in embed mode where tutorial is skipped), allow Escape to close.
+      if (overlay === 'tutorial' && !tutorialDoneRef.current) return;
+      setOverlay('none');
+    };
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
   }, [overlay]);
@@ -137,7 +145,10 @@ export default function App() {
   const registerScan = useCallback((fn: () => void) => { scanRef.current = fn; }, []);
   const registerSurvey = useCallback((fn: () => void) => { surveyRef.current = fn; }, []);
 
-  const openTutorialDone = useCallback(() => { a.initAudio(); a.sfx('select'); setOverlay('none'); }, [a]);
+  const openTutorialDone = useCallback(() => {
+    tutorialDoneRef.current = true;
+    a.initAudio(); a.sfx('select'); setOverlay('none');
+  }, [a]);
 
   const focusSpecies = lastFocus.current ? byKey[lastFocus.current] : null;
 
@@ -164,17 +175,20 @@ export default function App() {
         </div>
       )}
 
-      <TopBar level={stats.level} xp={stats.xp} xpNext={stats.xpNext}
-        discovered={stats.discovered} total={stats.total}
-        onSettings={() => { a.sfx('select'); setOverlay('settings'); }} />
+      {/* aria-hidden hides background nav from AT when any modal is open */}
+      <div aria-hidden={blocking ? true : undefined}>
+        <TopBar level={stats.level} xp={stats.xp} xpNext={stats.xpNext}
+          discovered={stats.discovered} total={stats.total}
+          onSettings={() => { a.sfx('select'); setOverlay('settings'); }} />
 
-      <FloatingNav
-        onEncyclopedia={() => { a.sfx('select'); setOverlay('encyclopedia'); }}
-        onMission={() => { a.sfx('select'); setOverlay('mission'); }}
-        onQuiz={() => { a.sfx('select'); setOverlay('quiz'); }}
-        onDotpad={() => { a.sfx('select'); setOverlay('dotpad'); }}
-        onTutorial={() => { a.sfx('select'); setOverlay('tutorial'); }}
-      />
+        <FloatingNav
+          onEncyclopedia={() => { a.sfx('select'); setOverlay('encyclopedia'); }}
+          onMission={() => { a.sfx('select'); setOverlay('mission'); }}
+          onQuiz={() => { a.sfx('select'); setOverlay('quiz'); }}
+          onDotpad={() => { a.sfx('select'); setOverlay('dotpad'); }}
+          onTutorial={() => { a.sfx('select'); setOverlay('tutorial'); }}
+        />
+      </div>
 
       {/* Dot Pad on-screen preview — hidden when showPreview=false (real device output unaffected) */}
       {showPreview && overlay === 'none' && (
@@ -204,14 +218,14 @@ export default function App() {
         <div className="caption-bar" aria-hidden="true">{a.caption}</div>
       )}
 
-      {overlay === 'tutorial' && <Tutorial onDone={openTutorialDone} />}
+      {overlay === 'tutorial' && <Tutorial onDone={openTutorialDone} closeable={tutorialDoneRef.current} />}
       {overlay === 'settings' && <SettingsPanel onClose={() => setOverlay('none')} />}
       {overlay === 'encyclopedia' && <Encyclopedia discovered={discovered} onClose={() => setOverlay('none')} />}
       {overlay === 'mission' && <Mission discovered={discovered} level={stats.level} onClose={() => setOverlay('none')} />}
       {overlay === 'quiz' && <Quiz discovered={discovered} onClose={() => setOverlay('none')} />}
       {overlay === 'dotpad' && (
         <div className="overlay-scrim center" onClick={() => setOverlay('none')}>
-          <div className="dotpad-modal glass" role="dialog" aria-label={ui.navDotpad} onClick={(e) => e.stopPropagation()}>
+          <div className="dotpad-modal glass" role="dialog" aria-modal="true" aria-label={ui.navDotpad} onClick={(e) => e.stopPropagation()}>
             <div className="panel-head">
               <h2>Dot Pad</h2>
               <button className="icon-btn" onClick={() => setOverlay('none')} aria-label={ui.close}>✕</button>
