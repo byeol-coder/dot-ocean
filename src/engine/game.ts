@@ -69,8 +69,8 @@ function shaftTexture(): THREE.Texture {
   ctx.fillStyle = g; ctx.fillRect(0, 0, 64, 256);
   return new THREE.CanvasTexture(c);
 }
-// Build a smooth, tinted, glowing creature sprite from its 60x40 tactile grid.
-// Lets code-generated species render in the 3D scene with no image assets.
+// Build a flat 2D illustration-style sprite from the 60x40 tactile dot grid.
+// Flat fill + outer bioluminescent glow + subtle belly sheen — no 3D gradient/specular.
 function silhouetteTexture(key: string, hue: number): THREE.Texture {
   const g = pattern(key);
   let x0 = GW, y0 = GH, x1 = -1, y1 = -1;
@@ -82,30 +82,40 @@ function silhouetteTexture(key: string, hue: number): THREE.Texture {
   x1 = Math.min(GW - 1, x1 + 1); y1 = Math.min(GH - 1, y1 + 1);
   const cols = x1 - x0 + 1, rows = y1 - y0 + 1;
   const S = 9;
+  const PAD = Math.ceil(S * 1.2); // room for outer glow
+  const cw = cols * S + PAD * 2, ch = rows * S + PAD * 2;
   const c = document.createElement('canvas');
-  c.width = cols * S; c.height = rows * S;
+  c.width = cw; c.height = ch;
   const ctx = c.getContext('2d')!;
-  // 1) paint the silhouette mask, blurred slightly so dots fuse into an organic shape
-  ctx.filter = `blur(${S * 0.55}px)`;
-  ctx.fillStyle = '#fff';
-  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (g[y][x]) {
-    ctx.beginPath();
-    ctx.arc((x - x0 + 0.5) * S, (y - y0 + 0.5) * S, S * 0.85, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  // 2) recolour the shape with a top-lit hue gradient
+
+  const dots = (r: number) => {
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (g[y][x]) {
+      ctx.beginPath();
+      ctx.arc((x - x0 + 0.5) * S + PAD, (y - y0 + 0.5) * S + PAD, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  };
+
+  // 1) outer bioluminescent glow (wide blur, same hue)
+  ctx.filter = `blur(${S * 1.1}px)`;
+  ctx.fillStyle = `hsl(${hue},88%,68%)`;
+  dots(S * 0.9);
+
+  // 2) flat body fill — crisp edges, no top-lit gradient
+  ctx.filter = `blur(${S * 0.38}px)`;
+  ctx.fillStyle = `hsl(${hue},76%,60%)`;
+  dots(S * 0.88);
   ctx.filter = 'none';
-  ctx.globalCompositeOperation = 'source-in';
-  const grad = ctx.createLinearGradient(0, 0, 0, c.height);
-  grad.addColorStop(0, `hsl(${hue},92%,74%)`);
-  grad.addColorStop(1, `hsl(${hue},80%,46%)`);
-  ctx.fillStyle = grad; ctx.fillRect(0, 0, c.width, c.height);
-  // 3) inner glow highlight
+
+  // 3) horizontal belly sheen — 2D illustration-style, not 3D specular
   ctx.globalCompositeOperation = 'source-atop';
-  const hi = ctx.createRadialGradient(c.width * 0.6, c.height * 0.4, 0, c.width * 0.6, c.height * 0.4, c.width * 0.5);
-  hi.addColorStop(0, 'rgba(255,255,255,0.5)');
-  hi.addColorStop(1, 'rgba(255,255,255,0)');
-  ctx.fillStyle = hi; ctx.fillRect(0, 0, c.width, c.height);
+  const sheen = ctx.createLinearGradient(0, ch * 0.3, 0, ch * 0.72);
+  sheen.addColorStop(0, 'rgba(255,255,255,0)');
+  sheen.addColorStop(0.45, 'rgba(255,255,255,0.16)');
+  sheen.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = sheen; ctx.fillRect(0, 0, cw, ch);
+  ctx.globalCompositeOperation = 'source-over';
+
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   t.minFilter = THREE.LinearFilter; t.magFilter = THREE.LinearFilter;
