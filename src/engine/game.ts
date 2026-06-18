@@ -172,6 +172,10 @@ export class OceanGame {
   private focusKey: string | null = null; private focusTimer = 0; private statTick = 0;
   private cueTick = 0; private cueIdx = 0; private radarTick = 0;
   private camFocus = new THREE.Vector3();
+  private camRoll = 0;
+  private overlayScene = new THREE.Scene();
+  private overlayCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  private waterOverlayMat!: THREE.ShaderMaterial;
 
   private water!: THREE.Mesh; private waterMat!: THREE.ShaderMaterial;
   private particles!: THREE.Points;
@@ -210,6 +214,7 @@ export class OceanGame {
     this.buildWater();
     this.buildEnvironment();
     this.buildParticles();
+    this.buildWaterOverlay();
     this.buildPlayer();
     for (let i = 0; i < 4; i++) this.spawn(true);
     this.resize();
@@ -346,6 +351,27 @@ export class OceanGame {
     }));
     this.scene.add(this.particles);
     this.buildBubbles();
+  }
+
+  private buildWaterOverlay(): void {
+    this.waterOverlayMat = new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false, depthTest: false,
+      blending: THREE.AdditiveBlending,
+      uniforms: { uTime: { value: 0 }, uAspect: { value: 1.6 } },
+      vertexShader: `varying vec2 vUv; void main(){ vUv = position.xy * 0.5 + 0.5; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
+      fragmentShader: `
+        uniform float uTime; uniform float uAspect; varying vec2 vUv;
+        void main(){
+          vec2 uv = vec2(vUv.x * uAspect, vUv.y);
+          float w1 = sin(uv.x * 14.0 + sin(uv.y * 9.5 + uTime * 0.31) + uTime * 0.27);
+          float w2 = sin(uv.y * 17.0 + sin(uv.x * 12.0 - uTime * 0.36) - uTime * 0.21);
+          float caustic = max(0.0, w1 * w2 - 0.52) / 0.48;
+          gl_FragColor = vec4(0.04, 0.26, 0.46, caustic * 0.09);
+        }`,
+    });
+    const q = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.waterOverlayMat);
+    q.frustumCulled = false;
+    this.overlayScene.add(q);
   }
 
   private buildBubbles(): void {
@@ -818,13 +844,24 @@ export class OceanGame {
       this.animateView(n.view, n.dir, n.vel, n.phase, focused, fast);
     }
 
-    // camera follow + sway
+    // camera follow + lookahead + roll + FOV breath
+    const rm = this.opts.reducedMotion();
     const f = 1 - Math.pow(0.0001, 0.016);
-    this.camFocus.x += (this.px - this.camFocus.x) * f;
-    this.camFocus.y += (this.py - this.camFocus.y) * f;
-    const sway = this.opts.reducedMotion() ? 0 : Math.sin(this.t * 0.4) * 1.2;
+    const ahead = rm ? 0 : 1.1;
+    this.camFocus.x += (this.px + this.pvx * ahead - this.camFocus.x) * f;
+    this.camFocus.y += (this.py + this.pvy * ahead * 0.55 - this.camFocus.y) * f;
+    const sway = rm ? 0 : Math.sin(this.t * 0.4) * 1.2;
     this.camera.position.set(this.camFocus.x * 0.7 + sway, this.camFocus.y * 0.7 + 4, CAM_Z);
+    // roll: tilt into horizontal velocity
+    const targetRoll = rm ? 0 : this.pvx * -0.017;
+    this.camRoll += (targetRoll - this.camRoll) * 0.07;
+    this.camera.up.set(Math.sin(this.camRoll), Math.cos(this.camRoll), 0);
     this.camera.lookAt(this.camFocus.x * 0.7, this.camFocus.y * 0.7, 0);
+    // FOV: widen with speed, subtle breathing rhythm
+    const speed = Math.hypot(this.pvx, this.pvy);
+    const targetFov = rm ? 50 : 50 + Math.min(speed * 0.27, 9) + Math.sin(this.t * 0.32) * 0.9;
+    this.camera.fov += (targetFov - this.camera.fov) * 0.04;
+    this.camera.updateProjectionMatrix();
 
     // env updates
     if (!this.opts.reducedMotion()) {
@@ -843,6 +880,9 @@ export class OceanGame {
       this.playerLight.position.set(this.px, this.py, 8);
       const depthT = Math.max(0, (-this.py + WY) / (WY * 2));
       this.playerLight.intensity = 0.85 - depthT * 0.3;
+      // water refraction overlay
+      this.waterOverlayMat.uniforms.uTime.value = this.t;
+      this.waterOverlayMat.uniforms.uAspect.value = this.camera.aspect;
     }
 
     // high contrast tweak
@@ -851,6 +891,12 @@ export class OceanGame {
     this.scene.fog = hc ? null : (this.scene.fog ?? new THREE.FogExp2(0x041523, 0.0062));
 
     this.renderer.render(this.scene, this.camera);
+    // water caustic overlay (additive, screen-space)
+    if (!this.opts.reducedMotion() && !hc) {
+      this.renderer.autoClear = false;
+      this.renderer.render(this.overlayScene, this.overlayCamera);
+      this.renderer.autoClear = true;
+    }
   }
 
   private resize(): void {
