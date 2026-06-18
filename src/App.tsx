@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from './state/AppContext';
 import { byKey, text, sizeScale } from './data/species';
 import { pattern } from './engine/dotMatrix';
+import { getDtmsPattern } from './data/dtmsPatterns';
 import type { GameStats, CueInfo, SurveyItem, RadarData } from './engine/game';
 import { TopBar } from './components/TopBar';
 import { FloatingNav } from './components/FloatingNav';
@@ -129,8 +130,13 @@ export default function App() {
     if (key) {
       lastFocus.current = key;
       setPadMode('focus');
-      const s = byKey[key];
-      if (s) a.dotpad.render(pattern(key, sizeScale(s.sizeCm)));
+      const dtms = getDtmsPattern(key);
+      if (dtms) {
+        a.dotpad.renderHex(dtms);
+      } else {
+        const s = byKey[key];
+        if (s) a.dotpad.render(pattern(key, sizeScale(s.sizeCm)));
+      }
     } else {
       setPadMode('radar');
     }

@@ -12,6 +12,8 @@ export interface DotPadAdapter {
   connect(): Promise<boolean>;
   /** Called each radar frame with the 60×40 integer grid. */
   render(grid: number[][]): void;
+  /** Send a pre-encoded DTMS hex string directly — bypasses encodeGrid for sharper output. */
+  renderHex(hex: string): void;
   disconnect(): void;
   /** Optional: called when connection status changes so the app can update UI. */
   onStatusChange?: (connected: boolean, status: TransportStatus, detail?: string) => void;
@@ -22,6 +24,7 @@ export class SimulatedDotPad implements DotPadAdapter {
   connected = false;
   async connect(): Promise<boolean> { this.connected = true; this.onStatusChange?.(true, 'connected'); return true; }
   render(_grid: number[][]): void { /* screen preview components handle display */ }
+  renderHex(_hex: string): void { /* no physical device */ }
   disconnect(): void { this.connected = false; this.onStatusChange?.(false, 'disconnected'); }
   onStatusChange?: (connected: boolean, status: TransportStatus, detail?: string) => void;
 }
@@ -57,6 +60,11 @@ export class WebBluetoothDotPad implements DotPadAdapter {
   /** Sends the radar frame to the real Dot Pad device (batched via rAF). */
   render(grid: number[][]): void {
     this.manager.push(grid);
+  }
+
+  /** Sends a pre-encoded DTMS hex string directly — bypasses encodeGrid. */
+  renderHex(hex: string): void {
+    this.manager.pushHex(hex);
   }
 
   disconnect(): void {

@@ -46,6 +46,14 @@ export class DotPadOutputManager {
     }
   }
 
+  /** Send a pre-encoded DTMS hex string directly — no encodeGrid, no rAF batching. */
+  pushHex(hex: string): void {
+    if (!this.transport.isConnected) return;
+    this.lastHex = hex;
+    this.lastGrid = null;
+    this.transport.displayGraphicHex(hex);
+  }
+
   /** Resend the last grid, bypassing the dedup cache. Called after device becomes ready. */
   private resend(): void {
     if (!this.lastGrid) return;
