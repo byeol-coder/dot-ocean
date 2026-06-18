@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { pattern, HIGHLIGHTS, GW, GH } from '../engine/dotMatrix';
+import { pattern, HIGHLIGHTS, GW, GH, Grid } from '../engine/dotMatrix';
 
 interface Props {
   speciesKey: string;
@@ -7,10 +7,12 @@ interface Props {
   animate?: boolean;
   scale?: number;
   ariaLabel?: string;
+  grid?: Grid;
 }
 
-export function DotMatrix({ speciesKey, layer = 'sil', animate = true, scale = 1, ariaLabel }: Props) {
-  const grid = useMemo(() => pattern(speciesKey, scale), [speciesKey, scale]);
+export function DotMatrix({ speciesKey, layer = 'sil', animate = true, scale = 1, ariaLabel, grid: gridProp }: Props) {
+  const computed = useMemo(() => pattern(speciesKey, scale), [speciesKey, scale]);
+  const grid = gridProp ?? computed;
   const hlSet = useMemo(() => {
     const set = new Set<number>();
     if (layer === 'parts') {

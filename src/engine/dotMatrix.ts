@@ -42,3 +42,29 @@ export function pattern(key: string, scale = 1): Grid {
 
 // No per-part highlight layer for art-derived silhouettes.
 export const HIGHLIGHTS: Record<string, Record<string, [number, number][]>> = {};
+
+// Braille 8-dot cell: bit index → (dx, dy) within a 2×4 cell block.
+// dot1=bit0 (0,0), dot2=bit1 (0,1), dot3=bit2 (0,2), dot4=bit3 (1,0),
+// dot5=bit4 (1,1), dot6=bit5 (1,2), dot7=bit6 (0,3), dot8=bit7 (1,3).
+const PIN_MAP: [number, number][] = [
+  [0, 0], [0, 1], [0, 2], [1, 0], [1, 1], [1, 2], [0, 3], [1, 3],
+];
+
+// Convert a DTMS hex string (600 chars = 300 bytes, one per braille cell)
+// into a 60×40 pin grid for on-screen rendering.
+export function dtmsToGrid(hex: string): Grid {
+  const g = blank();
+  for (let i = 0; i < 300; i++) {
+    const byte = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+    if (!byte) continue;
+    const cellX = i % 30;
+    const cellY = Math.floor(i / 30);
+    for (let b = 0; b < 8; b++) {
+      if (byte & (1 << b)) {
+        const [dx, dy] = PIN_MAP[b];
+        g[cellY * 4 + dy][cellX * 2 + dx] = 1;
+      }
+    }
+  }
+  return g;
+}
