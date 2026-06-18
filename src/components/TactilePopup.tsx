@@ -1,11 +1,19 @@
+import { useEffect } from 'react';
 import { byKey, text, sizeScale } from '../data/species';
 import { useApp } from '../state/AppContext';
 import { DotMatrix } from './DotMatrix';
+import { pattern } from '../engine/dotMatrix';
 
 interface Props { speciesKey: string; }
 
 export function TactilePopup({ speciesKey }: Props) {
-  const { ui, lang } = useApp();
+  const a = useApp();
+  const { ui, lang } = a;
+
+  useEffect(() => {
+    const s = byKey[speciesKey];
+    if (s) a.dotpad.render(pattern(speciesKey, sizeScale(s.sizeCm)));
+  }, [speciesKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const s = byKey[speciesKey];
   if (!s) return null;
   const t = text(s, lang);

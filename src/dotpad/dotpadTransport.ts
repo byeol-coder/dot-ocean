@@ -19,6 +19,7 @@ export class DotPadTransport {
   private device: DotDevice | null = null;
   private _status: TransportStatus = 'idle';
   private listeners: StatusListener[] = [];
+  private readyListeners: Array<() => void> = [];
 
   constructor() {
     this.sdk.setCallBack(
@@ -40,6 +41,12 @@ export class DotPadTransport {
     this.listeners.push(fn);
     fn(this._status);
     return () => { this.listeners = this.listeners.filter(l => l !== fn); };
+  }
+
+  /** Fires when the SDK signals the device is fully initialised (#w=true). */
+  onReady(fn: () => void): () => void {
+    this.readyListeners.push(fn);
+    return () => { this.readyListeners = this.readyListeners.filter(l => l !== fn); };
   }
 
   async connectBle(): Promise<boolean> {
@@ -89,7 +96,11 @@ export class DotPadTransport {
   }
 
   private onSdkMessage(_dev: DotDevice, code: string): void {
-    if (code === DataCodes.Disconnected) {
+    if (code === DataCodes.Connected) {
+      // SDK fires Connected AFTER BoardInfo exchange → device.#w is now true.
+      // Notify listeners so they can resend any data that was dropped during init.
+      for (const fn of this.readyListeners) fn();
+    } else if (code === DataCodes.Disconnected) {
       this.device = null;
       this.emit('disconnected');
     }

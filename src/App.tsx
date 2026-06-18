@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from './state/AppContext';
 import { byKey, text, sizeScale } from './data/species';
+import { pattern } from './engine/dotMatrix';
 import type { GameStats, CueInfo, SurveyItem, RadarData } from './engine/game';
 import { TopBar } from './components/TopBar';
 import { FloatingNav } from './components/FloatingNav';
@@ -125,9 +126,15 @@ export default function App() {
 
   const onFocus = useCallback((key: string | null) => {
     setFocusKey(key);
-    if (key) { lastFocus.current = key; setPadMode('focus'); }
-    else setPadMode('radar');
-  }, []);
+    if (key) {
+      lastFocus.current = key;
+      setPadMode('focus');
+      const s = byKey[key];
+      if (s) a.dotpad.render(pattern(key, sizeScale(s.sizeCm)));
+    } else {
+      setPadMode('radar');
+    }
+  }, [a]);
 
   const onEvent = useCallback((kind: 'eat' | 'levelup' | 'danger', key: string, level?: number, info?: CueInfo) => {
     const s = byKey[key];
@@ -142,9 +149,9 @@ export default function App() {
   }, [a, ui, lang, stats.level, dirText, say]);
 
   const onRadar = useCallback((d: RadarData) => {
-    setRadar(d.grid);          // → screen preview (only shown when showPreview=true)
-    a.dotpad.render(d.grid);   // → real Dot Pad device (always, regardless of showPreview)
-  }, [a]);
+    setRadar(d.grid);
+    if (padMode !== 'focus') a.dotpad.render(d.grid);
+  }, [a, padMode]);
 
   const onSurvey = useCallback((items: SurveyItem[], edges: number[]) => {
     if (!items.length && !edges.length) { say(ui.annNothing); return; }

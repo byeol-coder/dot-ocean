@@ -8,6 +8,13 @@ export class DotPadOutputManager {
   private rafId = 0;
   private pendingGrid: number[][] | null = null;
   private lastHex = '';
+  private lastGrid: number[][] | null = null;
+
+  constructor() {
+    // When the SDK signals the device is fully ready (after BoardInfo / #w=true),
+    // force a resend of the most recent grid — earlier sends may have been dropped.
+    this.transport.onReady(() => this.resend());
+  }
 
   get isSupported(): boolean { return this.transport.isSupported; }
   get isConnected(): boolean { return this.transport.isConnected; }
@@ -28,6 +35,7 @@ export class DotPadOutputManager {
 
   /** Push a new grid frame. Batches via rAF so the USB/BLE bus is never flooded. */
   push(grid: number[][]): void {
+    this.lastGrid = grid;
     this.pendingGrid = grid;
     if (!this.rafId) {
       this.rafId = requestAnimationFrame(() => {
@@ -36,6 +44,13 @@ export class DotPadOutputManager {
         if (g) { this.flush(g); this.pendingGrid = null; }
       });
     }
+  }
+
+  /** Resend the last grid, bypassing the dedup cache. Called after device becomes ready. */
+  private resend(): void {
+    if (!this.lastGrid) return;
+    this.lastHex = '';
+    this.push(this.lastGrid);
   }
 
   private flush(grid: number[][]): void {
