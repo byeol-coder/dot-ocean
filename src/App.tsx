@@ -28,6 +28,7 @@ export default function App() {
   const [stats, setStats] = useState<GameStats>({ level: 1, xp: 0, xpNext: 200, sizeFactor: 1, discovered: 0, total: 1 });
   const [discovered, setDiscovered] = useState<Set<string>>(new Set());
   const [focusKey, setFocusKey] = useState<string | null>(null);
+  const [focusPaused, setFocusPaused] = useState(false);
   const [radar, setRadar] = useState<number[][] | null>(null);
   const [padMode, setPadMode] = useState<'focus' | 'radar'>('radar');
   const [ready, setReady] = useState(false);
@@ -42,8 +43,8 @@ export default function App() {
   const curriculumLevel = useMemo(() => computeCurriculumLevel(discovered), [discovered]);
   const prevCurriculumLevelRef = useRef(curriculumLevel);
 
-  const paused = overlay !== 'none';
-  const blocking = paused;
+  const paused = overlay !== 'none' || focusPaused;
+  const blocking = overlay !== 'none';
 
   const dirText = useCallback((i: number) => ui.dir8[i] ?? '', [ui]);
   const distText = useCallback((d: 'near' | 'mid' | 'far') => (d === 'near' ? ui.distNear : d === 'mid' ? ui.distMid : ui.distFar), [ui]);
@@ -98,17 +99,22 @@ export default function App() {
     }
   }, [curriculumLevel, ui, a]);
 
+  const onFocusDismiss = useCallback(() => {
+    setFocusPaused(false);
+    setFocusKey(null);
+    setPadMode('radar');
+  }, []);
+
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
-      // Block Escape on first-time tutorial — user must click through to init audio.
-      // Once completed (or in embed mode where tutorial is skipped), allow Escape to close.
+      if (focusPaused) { onFocusDismiss(); return; }
       if (overlay === 'tutorial' && !tutorialDoneRef.current) return;
       setOverlay('none');
     };
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
-  }, [overlay]);
+  }, [overlay, focusPaused, onFocusDismiss]);
 
   const onDiscover = useCallback((key: string, info?: CueInfo) => {
     setDiscovered((prev) => {
@@ -130,6 +136,7 @@ export default function App() {
     if (key) {
       lastFocus.current = key;
       setPadMode('focus');
+      setFocusPaused(true);
       const dtms = getDtmsPattern(key);
       if (dtms) {
         a.dotpad.renderHex(dtms);
@@ -138,6 +145,7 @@ export default function App() {
         if (s) a.dotpad.render(pattern(key, sizeScale(s.sizeCm)));
       }
     } else {
+      setFocusPaused(false);
       setPadMode('radar');
     }
   }, [a]);
@@ -182,7 +190,7 @@ export default function App() {
 
   return (
     <div className={'app' + (highContrast ? ' hc' : '') + (reducedMotion ? ' reduce' : '') + (embedMode ? ' embed' : '')}>
-      <div className="game-layer" aria-hidden={blocking ? true : undefined}>
+      <div className={'game-layer' + (focusPaused ? ' focus-pause' : '')} aria-hidden={blocking ? true : undefined}>
         <GameCanvas
           paused={paused}
           curriculumLevel={curriculumLevel}
@@ -221,8 +229,12 @@ export default function App() {
         />
       </div>
 
-      {/* Dot Pad on-screen preview — hidden when showPreview=false (real device output unaffected) */}
-      {showPreview && overlay === 'none' && (
+      {/* Focus pause popup — always visible when a fish is paused (regardless of showPreview) */}
+      {overlay === 'none' && focusKey && focusPaused && (
+        <TactilePopup speciesKey={focusKey} onDismiss={onFocusDismiss} focusActive />
+      )}
+      {/* Dot Pad on-screen preview — shown when showPreview=true and not focus-paused */}
+      {showPreview && overlay === 'none' && !focusPaused && (
         focusKey
           ? <TactilePopup speciesKey={focusKey} />
           : (
