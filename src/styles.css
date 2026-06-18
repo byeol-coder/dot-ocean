@@ -16,7 +16,8 @@
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0}
 .app kbd{font-family:var(--mono);font-size:11px;background:rgba(20,46,70,.9);border:1px solid var(--line);border-radius:5px;padding:2px 6px;color:var(--foam)}
 
-.app{position:absolute;inset:0;overflow:hidden}
+.app{position:absolute;inset:0;overflow:hidden;
+  --nav-h:0px;--edge:18px;--topbar-h:68px}
 .game-layer{position:absolute;inset:0;transition:filter .5s ease,opacity .5s ease}
 .game-layer.focus-pause{filter:brightness(.22) saturate(.35);pointer-events:none}
 .app.reduce .game-layer{transition:none}
@@ -78,7 +79,7 @@
 /* ---------- tactile popup (transient) ---------- */
 .glass{background:var(--glass);border:1px solid var(--line);backdrop-filter:blur(18px);
   box-shadow:0 20px 60px rgba(0,0,0,.5)}
-.tactile-popup{position:absolute;right:18px;bottom:90px;z-index:18;width:280px;border-radius:18px;padding:14px;
+.tactile-popup{position:absolute;right:var(--edge);bottom:calc(var(--nav-h) + 90px);z-index:18;width:280px;border-radius:18px;padding:14px;
   animation:popIn .3s cubic-bezier(.2,.9,.3,1.3)}
 @keyframes popIn{from{opacity:0;transform:translateY(12px) scale(.96)}to{opacity:1;transform:none}}
 .app.reduce .tactile-popup{animation:none}
@@ -236,16 +237,39 @@
 .app.hc .tactile-popup,.app.hc .mission-item,.app.hc .fact,.app.hc .ency-card,.app.hc .foodchain,.app.hc .dotpad-shell{background:#000;border-color:#5cffd6}
 
 /* ---------- responsive ---------- */
+/* === Tablet (641–1024px) === */
+@media (min-width:641px) and (max-width:1024px){
+  .app{--edge:14px}
+  .fnav-btn{width:54px;height:54px;border-radius:14px}
+  .fnav-btn span{font-size:18px}
+  .tactile-popup{width:250px}
+  .radar-mini{width:185px}
+}
+
+/* === Mobile (≤640px) === */
 @media (max-width:640px){
-  .topbar{padding:10px 12px;gap:10px}
+  .app{--nav-h:calc(70px + env(safe-area-inset-bottom,0px));--edge:12px;--topbar-h:60px}
+  .topbar{padding:10px var(--edge);gap:10px}
   .brand-name{display:none}
   .xp-num{display:none}
   .floating-nav{left:0;right:0;top:auto;bottom:0;transform:none;flex-direction:row;justify-content:space-around;
-    padding:8px 8px calc(8px + env(safe-area-inset-bottom));background:var(--glass);border-top:1px solid var(--line);backdrop-filter:blur(12px)}
+    padding:8px var(--edge) calc(8px + env(safe-area-inset-bottom,0px));
+    background:var(--glass);border-top:1px solid var(--line);backdrop-filter:blur(12px)}
   .fnav-btn{width:auto;flex:1;height:54px;border:none;background:none;backdrop-filter:none}
-  .scan-fab{bottom:84px}
-  .tactile-popup{bottom:150px;right:10px;left:10px;width:auto}
+  /* radar-mini: top-right (below topbar) on mobile — avoids conflict with bottom controls */
+  .radar-mini{width:140px;top:calc(var(--topbar-h) + 8px);bottom:auto;right:var(--edge)}
+  /* play-controls + scan-fab clear the bottom nav */
+  .play-controls{right:var(--edge);bottom:calc(var(--nav-h) + 10px)}
+  /* tactile-popup: stretch full width just above nav */
+  .tactile-popup{bottom:calc(var(--nav-h) + 8px);right:var(--edge);left:var(--edge);width:auto}
+  /* caption clears the controls above the nav */
+  .caption-bar{bottom:calc(var(--nav-h) + 86px)}
   .facts{grid-template-columns:1fr}
+  /* focus-active popup: keep center but cap height so continue button stays reachable */
+  .tactile-popup.focus-active{
+    max-height:calc(100dvh - var(--topbar-h) - var(--nav-h) - 16px);
+    overflow-y:auto;
+  }
 }
 @media (prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;transition-duration:.01ms!important}}
 
@@ -313,13 +337,13 @@
 .app.hc .dm-dot.radar.player{background:#ffd400}
 .app.hc .dm-dot.radar.danger{background:#ff5a5a}
 
-.radar-mini{position:absolute;right:18px;top:92px;z-index:16;width:210px;border-radius:16px;padding:10px}
+.radar-mini{position:absolute;right:var(--edge);top:calc(var(--topbar-h) + 24px);z-index:16;width:210px;border-radius:16px;padding:10px}
 .radar-mini-head{font-size:12px;font-weight:700;color:var(--accent);margin-bottom:7px;letter-spacing:.3px}
 .radar-mini .dm-frame{width:100%;aspect-ratio:60/40;gap:0}
 .radar-mini .dotpad-cap{margin-top:6px}
-@media (max-width:640px){.radar-mini{width:150px;top:auto;bottom:150px;right:10px}}
+/* radar-mini mobile override now lives in the main @media (max-width:640px) block above */
 
-.play-controls{position:absolute;right:18px;bottom:18px;z-index:20;display:flex;align-items:flex-end;gap:12px}
+.play-controls{position:absolute;right:var(--edge);bottom:calc(var(--nav-h) + 18px);z-index:20;display:flex;align-items:flex-end;gap:12px}
 .play-controls .scan-fab{position:static}
 .ctrl-btn{display:flex;flex-direction:column;align-items:center;gap:3px;justify-content:center;
   width:60px;height:60px;border-radius:16px;cursor:pointer;color:#eaf6ff;
@@ -329,11 +353,11 @@
 .ctrl-btn:hover{border-color:rgba(120,220,255,.5)}.ctrl-btn:active{transform:scale(.92)}
 .app.hc .ctrl-btn{background:#000;border-color:#5cffd6}
 
-.caption-bar{position:absolute;left:50%;transform:translateX(-50%);bottom:96px;z-index:19;max-width:min(620px,82vw);
+.caption-bar{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(var(--nav-h) + 96px);z-index:19;max-width:min(620px,82vw);
   text-align:center;padding:9px 16px;border-radius:12px;font-size:15px;font-weight:600;color:#eaf6ff;
   background:rgba(6,16,30,.74);border:1px solid var(--line);backdrop-filter:blur(8px)}
 .app.hc .caption-bar{background:#000;border-color:#5cffd6}
-@media (max-width:640px){.caption-bar{bottom:220px}}
+/* caption-bar mobile positioning now handled via CSS variable in the base rule */
 
 /* ---- expanded encyclopedia: toolbar, filters, badges, all-found ---- */
 .ency-browse{max-width:980px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
@@ -393,12 +417,16 @@
 /* Responsive: fill 100% of host container without fixed sizes */
 html,body,#root{width:100%;height:100%;margin:0;padding:0;overflow:hidden}
 .app{width:100%;height:100%;position:absolute;inset:0}
-@media (max-height: 500px){
+/* === Landscape / short screen (height ≤500px) — stays desktop-style layout === */
+@media (max-height:500px){
   .topbar{padding:6px 10px}
   .floating-nav{gap:5px}
   .fnav-btn{width:46px;height:46px;font-size:16px}
+  .ctrl-btn{width:48px;height:48px}
   .scan-fab{width:44px;height:44px;font-size:18px}
-  .radar-mini{width:180px}
+  .radar-mini{width:160px;top:52px}
+  /* focus-active popup: scrollable on short screens */
+  .tactile-popup.focus-active{max-height:calc(100dvh - 24px);overflow-y:auto}
 }
 
 /* ---- Dot Pad connect section ---- */
