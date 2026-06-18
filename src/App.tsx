@@ -34,6 +34,7 @@ export default function App() {
   const [ready, setReady] = useState(false);
   const readyRef = useRef(false);
   const lastFocus = useRef<string | null>(null);
+  const focusCooldownUntil = useRef(0);
   const scanRef = useRef<() => void>(() => {});
   const surveyRef = useRef<() => void>(() => {});
   // embed mode skips tutorial on first load — treat it as already completed
@@ -100,6 +101,7 @@ export default function App() {
   }, [curriculumLevel, ui, a]);
 
   const onFocusDismiss = useCallback(() => {
+    focusCooldownUntil.current = Date.now() + 3000; // 3s grace before next focus
     setFocusPaused(false);
     setFocusKey(null);
     setPadMode('radar');
@@ -134,6 +136,7 @@ export default function App() {
   const onFocus = useCallback((key: string | null) => {
     setFocusKey(key);
     if (key) {
+      if (Date.now() < focusCooldownUntil.current) return; // dismissed recently — wait
       lastFocus.current = key;
       setPadMode('focus');
       setFocusPaused(true);

@@ -171,6 +171,7 @@ export class OceanGame {
   private pointer: { x: number; y: number } | null = null;
   private focusKey: string | null = null; private focusTimer = 0; private statTick = 0;
   private cueTick = 0; private cueIdx = 0; private radarTick = 0;
+  private focusCandidateKey: string | null = null; private focusCandidateTimer = 0;
   private camFocus = new THREE.Vector3();
   private camRoll = 0;
   private overlayScene = new THREE.Scene();
@@ -732,12 +733,23 @@ export class OceanGame {
     for (const n of this.npcs) if (n.dead) { this.scene.remove(n.view.group); this.disposeView(n.view); }
     this.npcs = this.npcs.filter((n) => !n.dead);
 
-    // focus / discovery
+    // focus / discovery — fish must stay close for 1.5s before triggering (prevents rapid switching)
     const focusR = 30;
+    const FOCUS_DWELL = 1.5;
     if (nearest && nd < focusR) {
-      this.focus(nearest.s.key);
+      if (this.focusCandidateKey === nearest.s.key) {
+        this.focusCandidateTimer = Math.min(this.focusCandidateTimer + dt, FOCUS_DWELL);
+        if (this.focusCandidateTimer >= FOCUS_DWELL) this.focus(nearest.s.key);
+      } else {
+        this.focusCandidateKey = nearest.s.key;
+        this.focusCandidateTimer = 0;
+      }
       if (!this.discovered.has(nearest.s.key)) { this.focusTimer = 4.5; this.discover(nearest); }
-    } else if (this.focusTimer > 0) { this.focusTimer -= dt; if (this.focusTimer <= 0) this.focus(null); }
+    } else {
+      this.focusCandidateKey = null;
+      this.focusCandidateTimer = 0;
+      if (this.focusTimer > 0) { this.focusTimer -= dt; if (this.focusTimer <= 0) this.focus(null); }
+    }
 
     // particles drift — plankton current simulation
     if (!rm) {
@@ -784,10 +796,10 @@ export class OceanGame {
       }
     }
 
-    // tactile radar push (~6 Hz)
+    // tactile radar push (~2 Hz — slow enough to read, fast enough for orientation)
     if (this.cb.onRadar) {
       this.radarTick -= dt;
-      if (this.radarTick <= 0) { this.radarTick = 0.16; this.cb.onRadar({ grid: this.buildRadar() }); }
+      if (this.radarTick <= 0) { this.radarTick = 0.5; this.cb.onRadar({ grid: this.buildRadar() }); }
     }
 
     // stats throttle
