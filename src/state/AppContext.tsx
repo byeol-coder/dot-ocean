@@ -5,7 +5,7 @@ import { SimulatedDotPad, type DotPadAdapter, type DotOceanEvent } from '../sdk/
 import type { TransportStatus } from '../dotpad/dotpadTransport';
 import type { EmbedParams } from '../embed/embedParams';
 
-export type Sfx = 'eat' | 'levelup' | 'danger' | 'discover' | 'send' | 'select';
+export type Sfx = 'eat' | 'levelup' | 'danger' | 'discover' | 'send' | 'select' | 'achieve';
 
 export interface InitialSettings {
   lang?: Lang; sound?: boolean; tts?: boolean; highContrast?: boolean;
@@ -125,6 +125,7 @@ export function AppProvider({ children, initial, adapter, onEvent, embedParams }
       case 'discover': tone(659, 0.1, 'sine', 0.35); tone(988, 0.18, 'sine', 0.38, 0.1); break;
       case 'send':     tone(440, 0.06, 'square', 0.22); tone(660, 0.06, 'square', 0.22, 0.06); tone(990, 0.1, 'square', 0.22, 0.12); break;
       case 'select':   tone(620, 0.05, 'sine', 0.2); break;
+      case 'achieve':  tone(523, 0.1, 'sine', 0.4); tone(659, 0.1, 'sine', 0.4, 0.1); tone(784, 0.1, 'sine', 0.4, 0.2); tone(1047, 0.3, 'sine', 0.4, 0.32); break;
     }
   }, [sound, tone]);
 

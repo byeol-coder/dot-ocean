@@ -23,7 +23,7 @@ export interface GameCallbacks {
   onStats: (s: GameStats) => void;
   onDiscover: (key: string, info?: CueInfo) => void;
   onFocus: (key: string | null) => void;
-  onEvent: (kind: 'eat' | 'levelup' | 'danger', key: string, level?: number, info?: CueInfo) => void;
+  onEvent: (kind: 'eat' | 'levelup' | 'danger' | 'scan', key: string, level?: number, info?: CueInfo) => void;
   onRadar?: (data: RadarData) => void;
   onSurvey?: (items: SurveyItem[], edges: number[]) => void;
   onCue?: (pan: number, pitch: number, danger: boolean) => void;
@@ -517,6 +517,7 @@ export class OceanGame {
     } else {
       this.cb.onSurvey?.([], this.edgesNear());
     }
+    this.cb.onEvent('scan', best?.s.key ?? '');
   }
 
   // announce the nearest few creatures (eyes-free "look around")
@@ -581,6 +582,26 @@ export class OceanGame {
 
   /** Restrict spawnable species to tier ≤ n (curriculum level gate). */
   setMaxTier(n: number): void { this.maxTier = Math.max(1, Math.min(5, n)); }
+
+  /** Restore saved progress (called once after construction, before start). */
+  restoreProgress(data: { level: number; xp: number; sizeFactor: number; discovered: string[] }): void {
+    this.level = Math.max(1, data.level);
+    this.xp = Math.max(0, data.xp);
+    this.sizeFactor = Math.max(1, data.sizeFactor);
+    for (const key of data.discovered) {
+      this.discovered.add(key);
+      for (const n of this.npcs) if (n.s.key === key) n.view.setKnown(true);
+    }
+  }
+
+  /** Award bonus XP (e.g. daily streak reward) and fire level-up events if needed. */
+  addBonusXp(amount: number): void {
+    this.xp += amount;
+    while (this.xp >= this.xpNext()) {
+      this.xp -= this.xpNext(); this.level += 1; this.sizeFactor *= 1.13;
+      this.cb.onEvent('levelup', PLAYER_SPECIES.key, this.level);
+    }
+  }
 
   private pickSpecies(): Species {
     const power = this.playerPower();

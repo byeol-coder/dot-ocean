@@ -638,3 +638,92 @@ html,body,#root{width:100%;height:100%;margin:0;padding:0;overflow:hidden}
 .app.hc .cl-progress-fill{background:#5cffd6}
 .app.hc .compare-card.active{border-color:#5cffd6}
 .app.hc .blind-opt.correct{border-color:#5cffd6;color:#5cffd6}
+
+/* ═══════════════════════════════════════════════════════════════════
+   STREAK · DAILY CHALLENGE · ACHIEVEMENTS
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* --- streak chip in topbar --- */
+.streak-chip{display:flex;align-items:center;gap:4px;background:rgba(245,145,42,.18);
+  border:1px solid rgba(245,145,42,.5);border-radius:30px;padding:6px 12px;
+  font-size:13px;font-weight:800;color:#f5b942;animation:streakGlow 2.5s ease-in-out infinite}
+.streak-chip span:first-child{font-size:15px}
+@keyframes streakGlow{0%,100%{box-shadow:none}50%{box-shadow:0 0 14px rgba(245,145,42,.4)}}
+.app.reduce .streak-chip{animation:none}
+
+/* --- daily challenge chip in topbar --- */
+.daily-chip{display:flex;align-items:center;gap:8px;
+  background:var(--glass);border:1px solid var(--line);border-radius:30px;
+  padding:6px 12px;font-size:13px;white-space:nowrap;cursor:default}
+.daily-chip>span{font-size:15px}
+.daily-bar-wrap{display:flex;align-items:center;gap:6px}
+.daily-bar{width:56px;height:6px;border-radius:4px;background:rgba(8,24,40,.9);overflow:hidden;flex-shrink:0}
+.daily-bar i{display:block;height:100%;border-radius:4px;
+  background:linear-gradient(90deg,var(--violet),var(--blue));transition:width .4s ease}
+.daily-fraction{font-family:var(--mono);font-size:10px;color:var(--mute)}
+.daily-chip.done{border-color:rgba(67,232,216,.5)}
+.daily-chip.done .daily-bar i{background:var(--bio)}
+.daily-chip.done .daily-fraction{color:var(--bio)}
+
+/* --- achievement toast --- */
+.achieve-toast{
+  position:absolute;top:calc(var(--topbar-h) + 12px);left:50%;transform:translateX(-50%);
+  z-index:50;display:flex;align-items:flex-start;gap:12px;padding:14px 18px;
+  border-radius:18px;min-width:260px;max-width:min(360px,88vw);
+  border-color:rgba(169,139,255,.6);
+  animation:toastIn .4s cubic-bezier(.2,.9,.3,1.3)
+}
+@keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(-14px) scale(.94)}to{opacity:1;transform:translateX(-50%) translateY(0) scale(1)}}
+.app.reduce .achieve-toast{animation:none}
+.achieve-icon{font-size:28px;line-height:1;flex-shrink:0;margin-top:2px}
+.achieve-text{display:flex;flex-direction:column;gap:2px}
+.achieve-label{font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--violet)}
+.achieve-name{font-size:15px;font-weight:800;color:var(--foam)}
+.achieve-desc{font-size:12px;color:var(--mute);line-height:1.4}
+
+/* --- achievements panel --- */
+.achievements-panel{width:min(480px,94vw);max-height:90dvh;display:flex;flex-direction:column;border-radius:22px;padding:20px}
+.achieve-grid{flex:1;overflow-y:auto;display:grid;grid-template-columns:1fr 1fr;gap:10px;padding-right:4px}
+.achieve-card{display:flex;align-items:flex-start;gap:10px;padding:12px;border-radius:14px;
+  background:var(--glass-2);border:1px solid var(--line);transition:border-color .15s}
+.achieve-card.unlocked{border-color:rgba(169,139,255,.45);background:rgba(169,139,255,.08)}
+.achieve-card-icon{font-size:22px;line-height:1;flex-shrink:0;opacity:.4}
+.achieve-card.unlocked .achieve-card-icon{opacity:1}
+.achieve-card-text{display:flex;flex-direction:column;gap:2px}
+.achieve-card-name{font-size:13px;font-weight:700;color:var(--mute)}
+.achieve-card.unlocked .achieve-card-name{color:var(--foam)}
+.achieve-card-desc{font-size:11px;color:var(--mute-2);line-height:1.4}
+.achieve-card.unlocked .achieve-card-desc{color:var(--mute)}
+
+/* --- fnav achievement button badge --- */
+.fnav-btn.achieve-btn{position:relative}
+.fnav-btn.achieve-btn.has-badge{border-color:rgba(169,139,255,.6);box-shadow:0 0 16px rgba(169,139,255,.25)}
+.fnav-badge{
+  position:absolute;top:5px;right:5px;
+  min-width:16px;height:16px;border-radius:8px;
+  background:var(--violet);color:#fff;
+  font-size:10px;font-weight:800;line-height:16px;text-align:center;padding:0 3px;
+  animation:badgePop .3s cubic-bezier(.2,.9,.3,1.4)
+}
+@keyframes badgePop{from{transform:scale(0)}to{transform:scale(1)}}
+.app.reduce .fnav-badge{animation:none}
+
+/* HC overrides for new components */
+.app.hc .achieve-toast{border-color:#a98bff;background:#0a0a1a}
+.app.hc .achieve-card.unlocked{border-color:#a98bff;background:rgba(169,139,255,.12)}
+.app.hc .streak-chip{background:#1a0a00;border-color:#f5b942}
+.app.hc .daily-chip.done{border-color:#5cffd6}
+
+/* --- topbar: responsive adjustments for daily/streak chips --- */
+@media (max-width:640px){
+  .daily-chip{display:none} /* on mobile, daily is in floating space */
+  .streak-chip span:last-child{display:none} /* show only flame icon on tiny screens */
+  .xp-num small{display:none}
+}
+@media (max-width:480px){
+  .streak-chip{padding:5px 9px}
+}
+/* tablet: show daily chip again */
+@media (min-width:641px) and (max-width:1024px){
+  .daily-bar{width:44px}
+}

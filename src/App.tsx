@@ -6,7 +6,7 @@ import { getDtmsPattern } from './data/dtmsPatterns';
 import type { GameStats, CueInfo, SurveyItem, RadarData } from './engine/game';
 import { TopBar } from './components/TopBar';
 import { FloatingNav } from './components/FloatingNav';
-import { GameCanvas } from './components/GameCanvas';
+import { GameCanvas, type InitialProgress } from './components/GameCanvas';
 import { TactilePopup } from './components/TactilePopup';
 import { RadarPad } from './components/RadarPad';
 import { SettingsPanel } from './components/SettingsPanel';
@@ -16,17 +16,63 @@ import { Quiz } from './components/Quiz';
 import { Tutorial } from './components/Tutorial';
 import { CurriculumPanel } from './components/CurriculumPanel';
 import { DotMatrix } from './components/DotMatrix';
+import { AchievementToast } from './components/AchievementToast';
+import { AchievementsPanel } from './components/AchievementsPanel';
 import { bridge } from './embed/postMessageBridge';
 import { computeCurriculumLevel } from './data/curriculum';
+import { loadSave, writeSave, checkAndUpdateStreak, todayISO, type SaveData } from './state/persistence';
+import { checkNewAchievements, type Achievement } from './data/achievements';
+import { getDailyChallenge, type DailyChallenge } from './state/daily';
 
-type Overlay = 'none' | 'tutorial' | 'settings' | 'encyclopedia' | 'mission' | 'quiz' | 'dotpad' | 'learn';
+type Overlay = 'none' | 'tutorial' | 'settings' | 'encyclopedia' | 'mission' | 'quiz' | 'dotpad' | 'learn' | 'achievements';
 
 export default function App() {
   const a = useApp();
   const { ui, lang, highContrast, reducedMotion, showPreview, embedMode } = a;
+
+  // ── persistence: load once synchronously ──────────────────────────────────
+  const [saveData] = useState<SaveData>(() => loadSave());
+  const saveRef = useRef<SaveData>(saveData);
+
+  const [initialProgress] = useState<InitialProgress>(() => ({
+    level: saveData.level, xp: saveData.xp,
+    sizeFactor: saveData.sizeFactor, discovered: saveData.discovered,
+  }));
+
+  // ── streak ─────────────────────────────────────────────────────────────────
+  const streakResultRef = useRef(() => checkAndUpdateStreak(saveData));
+  const [streakDays, setStreakDays] = useState(() => {
+    const r = streakResultRef.current();
+    return r.streakDays;
+  });
+  const bonusXpRef = useRef(0);
+
+  // ── daily challenge ────────────────────────────────────────────────────────
+  const today = todayISO();
+  const [dailyChallenge] = useState<DailyChallenge>(() => getDailyChallenge(today));
+  const [dailyProgress, setDailyProgress] = useState(() =>
+    saveData.dailyChallengeDate === today ? saveData.dailyChallengeProgress : 0
+  );
+  const [dailyCompleted, setDailyCompleted] = useState(() =>
+    saveData.dailyChallengeDate === today ? saveData.dailyChallengeCompleted : false
+  );
+  const dailyProgressRef = useRef(dailyProgress);
+  const dailyCompletedRef = useRef(dailyCompleted);
+
+  // ── achievements ───────────────────────────────────────────────────────────
+  const [unlockedAchievements, setUnlockedAchievements] = useState<Set<string>>(
+    () => new Set(saveData.unlockedAchievements)
+  );
+  const unlockedRef = useRef(new Set(saveData.unlockedAchievements));
+  const [achieveQueue, setAchieveQueue] = useState<Achievement[]>([]);
+  const [newAchievementCount, setNewAchievementCount] = useState(0);
+
+  // ── game state ─────────────────────────────────────────────────────────────
   const [overlay, setOverlay] = useState<Overlay>(embedMode ? 'none' : 'tutorial');
-  const [stats, setStats] = useState<GameStats>({ level: 1, xp: 0, xpNext: 200, sizeFactor: 1, discovered: 0, total: 1 });
-  const [discovered, setDiscovered] = useState<Set<string>>(new Set());
+  const [stats, setStats] = useState<GameStats>({ level: saveData.level, xp: saveData.xp, xpNext: 200, sizeFactor: saveData.sizeFactor, discovered: 0, total: 1 });
+  const statsRef = useRef(stats);
+  const [discovered, setDiscovered] = useState<Set<string>>(() => new Set(saveData.discovered));
+  const discoveredRef = useRef(new Set<string>(saveData.discovered));
   const [focusKey, setFocusKey] = useState<string | null>(null);
   const [focusPaused, setFocusPaused] = useState(false);
   const [radar, setRadar] = useState<number[][] | null>(null);
@@ -37,10 +83,9 @@ export default function App() {
   const focusCooldownUntil = useRef(0);
   const scanRef = useRef<() => void>(() => {});
   const surveyRef = useRef<() => void>(() => {});
-  // embed mode skips tutorial on first load — treat it as already completed
+  const addBonusXpRef = useRef<(xp: number) => void>(() => {});
   const tutorialDoneRef = useRef(embedMode);
 
-  // Derive curriculum level from discovered species (tier-based unlock)
   const curriculumLevel = useMemo(() => computeCurriculumLevel(discovered), [discovered]);
   const prevCurriculumLevelRef = useRef(curriculumLevel);
 
@@ -51,9 +96,83 @@ export default function App() {
   const distText = useCallback((d: 'near' | 'mid' | 'far') => (d === 'near' ? ui.distNear : d === 'mid' ? ui.distMid : ui.distFar), [ui]);
   const say = useCallback((msg: string) => { a.announce(msg); a.speak(msg); }, [a]);
 
+  // ── on mount: persist streak + fire bonus XP after game starts ─────────────
+  useEffect(() => {
+    const r = checkAndUpdateStreak(saveData);
+    if (r.isFirstToday) {
+      bonusXpRef.current = r.bonusXp;
+      const updated: SaveData = {
+        ...saveRef.current,
+        streakDays: r.streakDays,
+        lastVisitDate: today,
+        totalSessions: saveData.totalSessions + 1,
+      };
+      saveRef.current = updated;
+      writeSave(updated);
+      setStreakDays(r.streakDays);
+      if (r.streakDays >= 1) {
+        // Announce streak on first interaction after game loads
+        const greet = ui.streakBonusAnnounce(r.streakDays, r.bonusXp);
+        setTimeout(() => say(greet), 2000);
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── unlock achievements helper ─────────────────────────────────────────────
+  const unlockAchievements = useCallback((newOnes: Achievement[]) => {
+    if (!newOnes.length) return;
+    newOnes.forEach(ac => unlockedRef.current.add(ac.id));
+    setUnlockedAchievements(new Set(unlockedRef.current));
+    setAchieveQueue(prev => [...prev, ...newOnes]);
+    setNewAchievementCount(c => c + newOnes.length);
+    a.sfx('achieve');
+    const updated: SaveData = { ...saveRef.current, unlockedAchievements: [...unlockedRef.current] };
+    saveRef.current = updated;
+    writeSave(updated);
+  }, [a]);
+
+  const triggerAchievementCheck = useCallback((eventType?: 'danger' | 'daily_complete') => {
+    const newOnes = checkNewAchievements({
+      discoveredCount: discoveredRef.current.size,
+      discovered: discoveredRef.current,
+      level: statsRef.current.level,
+      curriculumLevel,
+      streakDays,
+      unlocked: unlockedRef.current,
+      eventType,
+    });
+    unlockAchievements(newOnes);
+  }, [curriculumLevel, streakDays, unlockAchievements]);
+
+  // ── daily challenge progress tracker ──────────────────────────────────────
+  const trackDailyEvent = useCallback((eventType: string) => {
+    if (dailyCompletedRef.current) return;
+    const dc = dailyChallenge;
+    const matches =
+      (dc.type === 'discover_new' && eventType === 'discover') ||
+      (dc.type === 'eat_count' && eventType === 'eat') ||
+      (dc.type === 'danger_count' && eventType === 'danger') ||
+      (dc.type === 'scan_count' && eventType === 'scan') ||
+      (dc.type === 'levelup_count' && eventType === 'levelup');
+    if (!matches) return;
+    const newProgress = dailyProgressRef.current + 1;
+    dailyProgressRef.current = newProgress;
+    setDailyProgress(newProgress);
+    const completed = newProgress >= dc.target;
+    if (completed) {
+      dailyCompletedRef.current = true;
+      setDailyCompleted(true);
+      triggerAchievementCheck('daily_complete');
+    }
+    const updated: SaveData = { ...saveRef.current, dailyChallengeDate: today, dailyChallengeProgress: newProgress, dailyChallengeCompleted: completed };
+    saveRef.current = updated;
+    writeSave(updated);
+  }, [dailyChallenge, today, triggerAchievementCheck]);
+
   useEffect(() => { document.documentElement.lang = lang; }, [lang]);
 
-  // postMessage: announce ready + listen for host commands
+  // postMessage bridge
   useEffect(() => {
     bridge.send({ type: 'ocean:ready', version: '3.1.0', embed: embedMode });
     const cleanup = bridge.listen((msg) => {
@@ -69,12 +188,10 @@ export default function App() {
     return cleanup;
   }, [embedMode, a]);
 
-  // postMessage: relay game stats upstream
   useEffect(() => {
     bridge.send({ type: 'ocean:stats', level: stats.level, discovered: stats.discovered, total: stats.total, xp: stats.xp });
   }, [stats]);
 
-  // postMessage: relay Dot Pad connection status
   useEffect(() => {
     bridge.send({
       type: 'ocean:dotpad:status',
@@ -86,25 +203,42 @@ export default function App() {
     });
   }, [a.dotpadStatus, a.dotpadStatusDetail]);
 
-  // Loading veil: clears on first stats frame or after fallback timeout
-  const markReady = useCallback(() => { if (!readyRef.current) { readyRef.current = true; setReady(true); } }, []);
-  const onStats = useCallback((s: GameStats) => { setStats(s); markReady(); }, [markReady]);
+  const markReady = useCallback(() => {
+    if (!readyRef.current) {
+      readyRef.current = true; setReady(true);
+      // Give bonus XP once game is running
+      if (bonusXpRef.current > 0) {
+        const b = bonusXpRef.current; bonusXpRef.current = 0;
+        setTimeout(() => addBonusXpRef.current(b), 800);
+      }
+    }
+  }, []);
+  const onStats = useCallback((s: GameStats) => {
+    setStats(s); statsRef.current = s; markReady();
+    // Throttled save: only when level or significant XP changes
+    const cur = saveRef.current;
+    if (cur.level !== s.level || Math.abs(cur.xp - s.xp) >= 100) {
+      const updated = { ...cur, level: s.level, xp: s.xp, sizeFactor: s.sizeFactor };
+      saveRef.current = updated;
+      writeSave(updated);
+    }
+    triggerAchievementCheck();
+  }, [markReady, triggerAchievementCheck]);
   useEffect(() => { const t = setTimeout(markReady, 2500); return () => clearTimeout(t); }, [markReady]);
 
-  // Announce curriculum level-up when a new tier is unlocked
+  // Curriculum tier-up announcement
   useEffect(() => {
     if (curriculumLevel > prevCurriculumLevelRef.current) {
       prevCurriculumLevelRef.current = curriculumLevel;
       const msg = ui.learnLevelUp(curriculumLevel);
       a.announce(msg); a.speak(msg); a.sfx('levelup');
+      triggerAchievementCheck();
     }
-  }, [curriculumLevel, ui, a]);
+  }, [curriculumLevel, ui, a, triggerAchievementCheck]);
 
   const onFocusDismiss = useCallback(() => {
-    focusCooldownUntil.current = Date.now() + 3000; // 3s grace before next focus
-    setFocusPaused(false);
-    setFocusKey(null);
-    setPadMode('radar');
+    focusCooldownUntil.current = Date.now() + 3000;
+    setFocusPaused(false); setFocusKey(null); setPadMode('radar');
   }, []);
 
   useEffect(() => {
@@ -122,48 +256,53 @@ export default function App() {
     setDiscovered((prev) => {
       if (prev.has(key)) return prev;
       const next = new Set(prev);
-      next.add(key);
+      next.add(key); discoveredRef.current = next;
+      // Persist immediately on new discovery
+      const updated: SaveData = { ...saveRef.current, discovered: [...next] };
+      saveRef.current = updated;
+      writeSave(updated);
       return next;
     });
     const s = byKey[key]; if (!s) return;
-    const name = text(s, lang).name;
-    bridge.send({ type: 'ocean:discover', key, name });
+    const t = text(s, lang);
+    bridge.send({ type: 'ocean:discover', key, name: t.name });
     a.sfx('discover');
     a.hostEvent?.({ type: 'discover', key });
-    say(info ? ui.annDiscover(name, dirText(info.dir), distText(info.dist)) : ui.evDiscover(name));
-  }, [a, ui, lang, dirText, distText, say]);
+    // Rich discovery narration
+    const richMsg = ui.evDiscoverRich(t.name, s.scientific, s.sizeCm, t.features[0] ?? '');
+    say(info ? `${richMsg} ${ui.annDiscover(t.name, dirText(info.dir), distText(info.dist))}` : richMsg);
+    trackDailyEvent('discover');
+    setTimeout(() => triggerAchievementCheck(), 50);
+  }, [a, ui, lang, dirText, distText, say, trackDailyEvent, triggerAchievementCheck]);
 
   const onFocus = useCallback((key: string | null) => {
     setFocusKey(key);
     if (key) {
-      if (Date.now() < focusCooldownUntil.current) return; // dismissed recently — wait
+      if (Date.now() < focusCooldownUntil.current) return;
       lastFocus.current = key;
-      setPadMode('focus');
-      setFocusPaused(true);
+      setPadMode('focus'); setFocusPaused(true);
       const dtms = getDtmsPattern(key);
-      if (dtms) {
-        a.dotpad.renderHex(dtms);
-      } else {
-        const s = byKey[key];
-        if (s) a.dotpad.render(pattern(key, sizeScale(s.sizeCm)));
-      }
+      if (dtms) { a.dotpad.renderHex(dtms); }
+      else { const s = byKey[key]; if (s) a.dotpad.render(pattern(key, sizeScale(s.sizeCm))); }
     } else {
-      setFocusPaused(false);
-      setPadMode('radar');
+      setFocusPaused(false); setPadMode('radar');
     }
   }, [a]);
 
-  const onEvent = useCallback((kind: 'eat' | 'levelup' | 'danger', key: string, level?: number, info?: CueInfo) => {
+  const onEvent = useCallback((kind: 'eat' | 'levelup' | 'danger' | 'scan', key: string, level?: number, info?: CueInfo) => {
     const s = byKey[key];
-    a.hostEvent?.({ type: kind, key, level });
-    if (kind === 'eat') { a.sfx('eat'); if (a.verbose && s) say(ui.evEat(text(s, lang).name)); }
-    else if (kind === 'levelup') { a.sfx('levelup'); say(ui.evLevelUp(level ?? stats.level)); }
+    a.hostEvent?.({ type: kind as 'eat' | 'levelup' | 'danger', key, level });
+    if (kind === 'eat') { a.sfx('eat'); if (a.verbose && s) say(ui.evEat(text(s, lang).name)); trackDailyEvent('eat'); }
+    else if (kind === 'levelup') { a.sfx('levelup'); say(ui.evLevelUp(level ?? stats.level)); trackDailyEvent('levelup'); triggerAchievementCheck(); }
     else if (kind === 'danger' && s) {
       a.sfx('danger');
       const name = text(s, lang).name;
       say(info ? ui.annDanger(name, dirText(info.dir)) : ui.evDanger(name));
+      trackDailyEvent('danger');
+      triggerAchievementCheck('danger');
     }
-  }, [a, ui, lang, stats.level, dirText, say]);
+    else if (kind === 'scan') { trackDailyEvent('scan'); }
+  }, [a, ui, lang, stats.level, dirText, say, trackDailyEvent, triggerAchievementCheck]);
 
   const onRadar = useCallback((d: RadarData) => {
     setRadar(d.grid);
@@ -183,6 +322,7 @@ export default function App() {
 
   const registerScan = useCallback((fn: () => void) => { scanRef.current = fn; }, []);
   const registerSurvey = useCallback((fn: () => void) => { surveyRef.current = fn; }, []);
+  const registerAddBonusXp = useCallback((fn: (xp: number) => void) => { addBonusXpRef.current = fn; }, []);
 
   const openTutorialDone = useCallback(() => {
     tutorialDoneRef.current = true;
@@ -197,6 +337,7 @@ export default function App() {
         <GameCanvas
           paused={paused}
           curriculumLevel={curriculumLevel}
+          initialProgress={initialProgress}
           onStats={onStats}
           onDiscover={onDiscover}
           onFocus={onFocus}
@@ -205,6 +346,7 @@ export default function App() {
           onSurvey={onSurvey}
           registerScan={registerScan}
           registerSurvey={registerSurvey}
+          registerAddBonusXp={registerAddBonusXp}
         />
       </div>
 
@@ -215,10 +357,13 @@ export default function App() {
         </div>
       )}
 
-      {/* aria-hidden hides background nav from AT when any modal is open */}
       <div aria-hidden={blocking ? true : undefined}>
         <TopBar level={stats.level} xp={stats.xp} xpNext={stats.xpNext}
           discovered={stats.discovered} total={stats.total}
+          streakDays={streakDays}
+          dailyChallenge={dailyChallenge}
+          dailyProgress={dailyProgress}
+          dailyCompleted={dailyCompleted}
           onSettings={() => { a.sfx('select'); setOverlay('settings'); }} />
 
         <FloatingNav
@@ -228,15 +373,24 @@ export default function App() {
           onLearn={() => { a.sfx('select'); setOverlay('learn'); }}
           onDotpad={() => { a.sfx('select'); setOverlay('dotpad'); }}
           onTutorial={() => { a.sfx('select'); setOverlay('tutorial'); }}
+          onAchievements={() => { a.sfx('select'); setNewAchievementCount(0); setOverlay('achievements'); }}
           curriculumLevel={curriculumLevel}
+          newAchievementCount={newAchievementCount}
         />
       </div>
 
-      {/* Focus pause popup — always visible when a fish is paused (regardless of showPreview) */}
+      {/* Achievement toast — sits above everything */}
+      <AchievementToast
+        queue={achieveQueue}
+        lang={lang}
+        onDismiss={(id) => setAchieveQueue(q => q.filter(ac => ac.id !== id))}
+      />
+
+      {/* Focus pause popup */}
       {overlay === 'none' && focusKey && focusPaused && (
         <TactilePopup speciesKey={focusKey} onDismiss={onFocusDismiss} focusActive />
       )}
-      {/* Dot Pad on-screen preview — shown when showPreview=true and not focus-paused */}
+      {/* Dot Pad on-screen preview */}
       {showPreview && overlay === 'none' && !focusPaused && (
         focusKey
           ? <TactilePopup speciesKey={focusKey} />
@@ -249,7 +403,6 @@ export default function App() {
           )
       )}
 
-      {/* essential controls */}
       {overlay === 'none' && (
         <div className="play-controls">
           <button className="ctrl-btn" onClick={() => { surveyRef.current(); }} aria-label={ui.keySurvey}>
@@ -259,7 +412,6 @@ export default function App() {
         </div>
       )}
 
-      {/* captions */}
       {overlay === 'none' && a.captions && a.caption && (
         <div className="caption-bar" aria-hidden="true">{a.caption}</div>
       )}
@@ -270,11 +422,10 @@ export default function App() {
       {overlay === 'mission' && <Mission discovered={discovered} level={stats.level} onClose={() => setOverlay('none')} />}
       {overlay === 'quiz' && <Quiz discovered={discovered} onClose={() => setOverlay('none')} />}
       {overlay === 'learn' && (
-        <CurriculumPanel
-          discovered={discovered}
-          curriculumLevel={curriculumLevel}
-          onClose={() => setOverlay('none')}
-        />
+        <CurriculumPanel discovered={discovered} curriculumLevel={curriculumLevel} onClose={() => setOverlay('none')} />
+      )}
+      {overlay === 'achievements' && (
+        <AchievementsPanel unlockedIds={unlockedAchievements} onClose={() => setOverlay('none')} />
       )}
       {overlay === 'dotpad' && (
         <div className="overlay-scrim center" onClick={() => setOverlay('none')}>
@@ -283,10 +434,7 @@ export default function App() {
               <h2>Dot Pad</h2>
               <button className="icon-btn" onClick={() => setOverlay('none')} aria-label={ui.close}>✕</button>
             </div>
-
-            {/* Connection section */}
             <DotPadConnectSection />
-
             <div className="layer-toggle">
               <button aria-pressed={padMode === 'radar'} onClick={() => setPadMode('radar')}>{ui.radarMode}</button>
               <button aria-pressed={padMode === 'focus'} onClick={() => setPadMode('focus')} disabled={!focusSpecies}>{ui.focusMode}</button>
@@ -306,9 +454,7 @@ export default function App() {
                   a.sfx('send');
                   const t = text(byKey[k], lang);
                   say(`${t.name}. ${t.tactile}`);
-                }}>
-                  ✋ {ui.touchWithDotpad}
-                </button>
+                }}>✋ {ui.touchWithDotpad}</button>
               </>
             ) : (
               <p className="empty small">{lang === 'ko' ? '가까운 생물에 다가가면 여기에 촉각 미리보기가 떠요.' : 'Approach a creature to see its tactile preview here.'}</p>
@@ -320,7 +466,6 @@ export default function App() {
   );
 }
 
-/** Dot Pad connection UI with real BLE flow and ARIA status announcements. */
 function DotPadConnectSection() {
   const a = useApp();
   const { ui, lang } = a;
@@ -340,8 +485,7 @@ function DotPadConnectSection() {
 
   const handleConnect = async () => {
     if (busy || a.dotpadConnected) return;
-    setBusy(true);
-    a.initAudio();
+    setBusy(true); a.initAudio();
     const ok = await a.dotpad.connect();
     setBusy(false);
     if (ok) { a.sfx('send'); a.announce(ui.evConnected); a.speak(ui.evConnected); }
@@ -368,20 +512,13 @@ function DotPadConnectSection() {
             ✕ {lang === 'ko' ? '연결 해제' : 'Disconnect'}
           </button>
         ) : (
-          <button
-            className={'btn-ghost' + (busy ? ' loading' : '')}
-            onClick={handleConnect}
-            disabled={busy}
-            aria-busy={busy}
-          >
+          <button className={'btn-ghost' + (busy ? ' loading' : '')} onClick={handleConnect} disabled={busy} aria-busy={busy}>
             {busy ? '⠿ ' : '🔗 '}{busy ? (lang === 'ko' ? '연결 중...' : 'Connecting…') : ui.connect}
           </button>
         )}
       </div>
       {(a.dotpadStatus === 'error' || a.dotpadStatus === 'unsupported') && (
-        <p className="dotpad-error" role="alert">
-          {statusLabel[a.dotpadStatus]}
-        </p>
+        <p className="dotpad-error" role="alert">{statusLabel[a.dotpadStatus]}</p>
       )}
       {(a.dotpadStatus === 'scanning' || a.dotpadStatus === 'connecting') && (
         <p className="dotpad-hint" aria-live="polite">{statusLabel[a.dotpadStatus]}</p>

@@ -2,17 +2,23 @@ import { useEffect, useRef, useState } from 'react';
 import { OceanGame, type GameStats, type CueInfo, type SurveyItem, type RadarData } from '../engine/game';
 import { useApp } from '../state/AppContext';
 
+export interface InitialProgress {
+  level: number; xp: number; sizeFactor: number; discovered: string[];
+}
+
 interface Props {
   paused: boolean;
   curriculumLevel?: number;
+  initialProgress?: InitialProgress;
   onStats: (s: GameStats) => void;
   onDiscover: (key: string, info?: CueInfo) => void;
   onFocus: (key: string | null) => void;
-  onEvent: (kind: 'eat' | 'levelup' | 'danger', key: string, level?: number, info?: CueInfo) => void;
+  onEvent: (kind: 'eat' | 'levelup' | 'danger' | 'scan', key: string, level?: number, info?: CueInfo) => void;
   onRadar: (data: RadarData) => void;
   onSurvey: (items: SurveyItem[], edges: number[]) => void;
   registerScan: (fn: () => void) => void;
   registerSurvey: (fn: () => void) => void;
+  registerAddBonusXp?: (fn: (xp: number) => void) => void;
 }
 
 function webglAvailable(): boolean {
@@ -22,11 +28,12 @@ function webglAvailable(): boolean {
   } catch { return false; }
 }
 
-export function GameCanvas({ paused, curriculumLevel = 5, onStats, onDiscover, onFocus, onEvent, onRadar, onSurvey, registerScan, registerSurvey }: Props) {
+export function GameCanvas({ paused, curriculumLevel = 5, initialProgress, onStats, onDiscover, onFocus, onEvent, onRadar, onSurvey, registerScan, registerSurvey, registerAddBonusXp }: Props) {
   const { highContrast, reducedMotion, audioCues, cue } = useApp();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const gameRef = useRef<OceanGame | null>(null);
   const [failed, setFailed] = useState(false);
+  const initialProgressRef = useRef(initialProgress);
 
   const flags = useRef({ highContrast, reducedMotion, paused, audioCues });
   flags.current = { highContrast, reducedMotion, paused, audioCues };
@@ -66,6 +73,7 @@ export function GameCanvas({ paused, curriculumLevel = 5, onStats, onDiscover, o
           onCue: (pan, pitch, danger) => cbs.current.cue(pan, pitch, danger),
         },
       );
+      if (initialProgressRef.current) game.restoreProgress(initialProgressRef.current);
       game.start();
     } catch (e) {
       console.error('OceanGame init failed:', e);
@@ -77,6 +85,7 @@ export function GameCanvas({ paused, curriculumLevel = 5, onStats, onDiscover, o
     gameRef.current = game;
     registerScan(() => game.scanNearest());
     registerSurvey(() => game.survey());
+    registerAddBonusXp?.((xp) => game.addBonusXp(xp));
 
     const kd = (e: KeyboardEvent) => {
       if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' '].includes(e.key)) e.preventDefault();

@@ -7,10 +7,12 @@ interface Props {
   onLearn: () => void;
   onDotpad: () => void;
   onTutorial: () => void;
+  onAchievements: () => void;
   curriculumLevel?: number;
+  newAchievementCount?: number;
 }
 
-export function FloatingNav({ onEncyclopedia, onMission, onQuiz, onLearn, onDotpad, onTutorial, curriculumLevel = 1 }: Props) {
+export function FloatingNav({ onEncyclopedia, onMission, onQuiz, onLearn, onDotpad, onTutorial, onAchievements, curriculumLevel = 1, newAchievementCount = 0 }: Props) {
   const { ui, dotpadConnected } = useApp();
   return (
     <nav className="floating-nav" aria-label={ui.appName}>
@@ -28,6 +30,13 @@ export function FloatingNav({ onEncyclopedia, onMission, onQuiz, onLearn, onDotp
         <span aria-hidden="true">📚</span>
         <small>{ui.navLearn}</small>
         <span className="fnav-level-badge" aria-hidden="true">{curriculumLevel}</span>
+      </button>
+      <button className={'fnav-btn achieve-btn' + (newAchievementCount > 0 ? ' has-badge' : '')}
+              onClick={onAchievements}
+              aria-label={`${ui.navAchievements}${newAchievementCount > 0 ? ` (${newAchievementCount})` : ''}`}>
+        <span aria-hidden="true">🏆</span>
+        <small>{ui.navAchievements}</small>
+        {newAchievementCount > 0 && <span className="fnav-badge" aria-hidden="true">{newAchievementCount}</span>}
       </button>
       <button className={'fnav-btn' + (dotpadConnected ? ' connected' : '')} onClick={onDotpad} aria-label={ui.navDotpad}>
         <span aria-hidden="true">⠿</span><small>Dot Pad</small>

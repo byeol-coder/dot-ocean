@@ -161,6 +161,15 @@ export interface UIStrings {
   learnDiscoverFirst: string;
   learnSessionDone: string;
   learnScore: (a: number, b: number) => string;
+  // streak & daily
+  navAchievements: string;
+  streakLabel: (n: number) => string;
+  streakBonusAnnounce: (n: number, xp: number) => string;
+  dailyTitle: string;
+  dailyComplete: string;
+  dailyProgress: (a: number, b: number) => string;
+  achieveUnlocked: string;
+  evDiscoverRich: (name: string, scientific: string, sizeCm: number, feature: string) => string;
 }
 
 export const UI: Record<Lang, UIStrings> = {
@@ -262,6 +271,14 @@ export const UI: Record<Lang, UIStrings> = {
     learnDiscoverFirst: '이 단계를 열려면 먼저 바다에서 생물을 발견하세요.',
     learnSessionDone: '학습 완료! 잘 하셨어요.',
     learnScore: (a, b) => `정답 ${a} / ${b}`,
+    navAchievements: '업적',
+    streakLabel: (n) => `${n}일 연속`,
+    streakBonusAnnounce: (n, xp) => `${n}일 연속 탐험! 보너스 ${xp} XP를 획득했어요.`,
+    dailyTitle: '오늘의 도전',
+    dailyComplete: '완료!',
+    dailyProgress: (a, b) => `${a} / ${b}`,
+    achieveUnlocked: '업적 달성!',
+    evDiscoverRich: (name, scientific, sizeCm, feature) => `새 발견! ${name}. 학명: ${scientific}. 크기 ${sizeCm}센티미터. ${feature}.`,
   },
   en: {
     appName: 'Dot Ocean', tagline: 'Explore the ocean by touch',
@@ -361,5 +378,13 @@ export const UI: Record<Lang, UIStrings> = {
     learnDiscoverFirst: 'Discover creatures in the ocean to unlock this level.',
     learnSessionDone: 'Session complete! Great work.',
     learnScore: (a, b) => `${a} / ${b} correct`,
+    navAchievements: 'Awards',
+    streakLabel: (n) => `${n}d streak`,
+    streakBonusAnnounce: (n, xp) => `${n}-day streak! You earned a bonus ${xp} XP.`,
+    dailyTitle: "Today's Challenge",
+    dailyComplete: 'Done!',
+    dailyProgress: (a, b) => `${a} / ${b}`,
+    achieveUnlocked: 'Achievement!',
+    evDiscoverRich: (name, scientific, sizeCm, feature) => `New discovery! ${name}. Scientific name: ${scientific}. Size: ${sizeCm} centimeters. ${feature}.`,
   },
 };
