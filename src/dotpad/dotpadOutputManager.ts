@@ -1,6 +1,6 @@
 // Bridges game state (60×40 grid) → real Dot Pad hardware output.
 // Decoupled from screen preview: hiding preview does NOT disable this path.
-import { DotPadTransport, type StatusListener } from './dotpadTransport';
+import { DotPadTransport, type StatusListener, type DotKeyAction } from './dotpadTransport';
 import { encodeGrid } from './dotpadEncoder';
 
 export class DotPadOutputManager {
@@ -18,6 +18,10 @@ export class DotPadOutputManager {
 
   get isSupported(): boolean { return this.transport.isSupported; }
   get isConnected(): boolean { return this.transport.isConnected; }
+
+  set onKey(fn: ((action: DotKeyAction) => void) | undefined) {
+    this.transport.onKey = fn;
+  }
 
   onStatus(fn: StatusListener): () => void {
     return this.transport.onStatus(fn);

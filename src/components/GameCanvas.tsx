@@ -29,7 +29,7 @@ function webglAvailable(): boolean {
 }
 
 export function GameCanvas({ paused, curriculumLevel = 5, initialProgress, onStats, onDiscover, onFocus, onEvent, onRadar, onSurvey, registerScan, registerSurvey, registerAddBonusXp }: Props) {
-  const { highContrast, reducedMotion, audioCues, cue } = useApp();
+  const { highContrast, reducedMotion, audioCues, cue, dotpad } = useApp();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const gameRef = useRef<OceanGame | null>(null);
   const [failed, setFailed] = useState(false);
@@ -97,6 +97,29 @@ export function GameCanvas({ paused, curriculumLevel = 5, initialProgress, onSta
     window.addEventListener('keydown', kd);
     window.addEventListener('keyup', ku);
 
+    // DotPad physical key → game control mapping
+    // PanningLeft/Right = 4방향 이동, PanningAll = 스캔, F1/F2 = 상하, F3 = 서베이, LPF1/RPF4 = 상하 대안
+    const PULSE_MS = 160; // duration for a brief directional burst
+    const pulseTimers: ReturnType<typeof setTimeout>[] = [];
+    const pulse = (key: string) => {
+      game.setKey(key, true);
+      const t = setTimeout(() => game.setKey(key, false), PULSE_MS);
+      pulseTimers.push(t);
+    };
+    dotpad.onKey = (action) => {
+      switch (action) {
+        case 'panLeft':  pulse('ArrowLeft');  break;
+        case 'panRight': pulse('ArrowRight'); break;
+        case 'lpf1':
+        case 'f1':       pulse('ArrowUp');    break;
+        case 'rpf4':
+        case 'f4':       pulse('ArrowDown');  break;
+        case 'panAll':
+        case 'f2':       game.scanNearest();  break;
+        case 'f3':       game.survey();       break;
+      }
+    };
+
     const toCanvas = (clientX: number, clientY: number) => {
       const r = canvas.getBoundingClientRect();
       const x = ((clientX - r.left) / r.width) * 2 - 1;
@@ -114,6 +137,8 @@ export function GameCanvas({ paused, curriculumLevel = 5, initialProgress, onSta
 
     return () => {
       game.stop();
+      dotpad.onKey = undefined;
+      pulseTimers.forEach(clearTimeout);
       window.removeEventListener('keydown', kd);
       window.removeEventListener('keyup', ku);
       canvas.removeEventListener('pointerdown', pd);

@@ -431,10 +431,14 @@ export default function App() {
         <div className="overlay-scrim center" onClick={() => setOverlay('none')}>
           <div className="dotpad-modal glass" role="dialog" aria-modal="true" aria-label={ui.navDotpad} onClick={(e) => e.stopPropagation()}>
             <div className="panel-head">
-              <h2>Dot Pad</h2>
+              <h2>⠿ Dot Pad</h2>
               <button className="icon-btn" onClick={() => setOverlay('none')} aria-label={ui.close}>✕</button>
             </div>
+
+            {/* ── 연결 섹션 ── */}
             <DotPadConnectSection />
+
+            {/* ── 화면 미리보기 ── */}
             <div className="layer-toggle">
               <button aria-pressed={padMode === 'radar'} onClick={() => setPadMode('radar')}>{ui.radarMode}</button>
               <button aria-pressed={padMode === 'focus'} onClick={() => setPadMode('focus')} disabled={!focusSpecies}>{ui.focusMode}</button>
@@ -443,7 +447,6 @@ export default function App() {
               <>
                 <RadarPad grid={radar} ariaLabel={ui.radarHint} />
                 <div className="dotpad-cap"><span className="sim">{ui.simLabel}</span><span className="res">60 × 40</span></div>
-                <p className="empty small">{ui.radarHint}</p>
               </>
             ) : focusSpecies ? (
               <>
@@ -459,6 +462,29 @@ export default function App() {
             ) : (
               <p className="empty small">{lang === 'ko' ? '가까운 생물에 다가가면 여기에 촉각 미리보기가 떠요.' : 'Approach a creature to see its tactile preview here.'}</p>
             )}
+
+            {/* ── 키맵 가이드 ── */}
+            <details className="keymap-details" open={a.dotpadConnected}>
+              <summary className="keymap-summary">
+                {lang === 'ko' ? '⌨ Dot Pad 키 사용법' : '⌨ Dot Pad Key Guide'}
+              </summary>
+              <table className="keymap-table" aria-label={lang === 'ko' ? 'Dot Pad 키맵' : 'Dot Pad keymap'}>
+                <thead>
+                  <tr>
+                    <th>{lang === 'ko' ? '버튼' : 'Key'}</th>
+                    <th>{lang === 'ko' ? '동작' : 'Action'}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td>◀ Panning Left</td><td>{lang === 'ko' ? '왼쪽으로 헤엄' : 'Swim left'}</td></tr>
+                  <tr><td>▶ Panning Right</td><td>{lang === 'ko' ? '오른쪽으로 헤엄' : 'Swim right'}</td></tr>
+                  <tr><td>F1 / LPF1</td><td>{lang === 'ko' ? '위로 헤엄' : 'Swim up'}</td></tr>
+                  <tr><td>F4 / RPF4</td><td>{lang === 'ko' ? '아래로 헤엄' : 'Swim down'}</td></tr>
+                  <tr><td>Panning All / F2</td><td>{lang === 'ko' ? '가장 가까운 생물 스캔' : 'Scan nearest creature'}</td></tr>
+                  <tr><td>F3</td><td>{lang === 'ko' ? '주변 서베이' : 'Survey surroundings'}</td></tr>
+                </tbody>
+              </table>
+            </details>
           </div>
         </div>
       )}
@@ -470,17 +496,18 @@ function DotPadConnectSection() {
   const a = useApp();
   const { ui, lang } = a;
   const [busy, setBusy] = useState(false);
+  const ko = lang === 'ko';
 
-  const statusLabel: Record<string, string> = {
-    idle: '',
-    scanning: lang === 'ko' ? '기기 검색 중...' : 'Scanning for device…',
-    connecting: lang === 'ko' ? '연결 중...' : 'Connecting…',
-    connected: lang === 'ko' ? '연결됨' : 'Connected',
-    disconnected: lang === 'ko' ? '연결 해제됨' : 'Disconnected',
-    error: a.dotpadStatusDetail ?? (lang === 'ko' ? '연결 오류' : 'Connection error'),
-    unsupported: lang === 'ko'
+  const STATUS_MSG: Record<string, string> = {
+    idle:         '',
+    scanning:     ko ? '기기 검색 중…' : 'Scanning for device…',
+    connecting:   ko ? '연결 중…'       : 'Connecting…',
+    connected:    ko ? '연결됨'          : 'Connected',
+    disconnected: ko ? '연결 해제됨'    : 'Disconnected',
+    error:        a.dotpadStatusDetail ?? (ko ? '연결 오류' : 'Connection error'),
+    unsupported:  ko
       ? 'Web Bluetooth를 지원하지 않는 브라우저입니다. Chrome 또는 Edge를 사용해 주세요.'
-      : 'Web Bluetooth is not supported. Please use Chrome or Edge.',
+      : 'Web Bluetooth is not supported in this browser. Use Chrome or Edge.',
   };
 
   const handleConnect = async () => {
@@ -490,38 +517,56 @@ function DotPadConnectSection() {
     setBusy(false);
     if (ok) { a.sfx('send'); a.announce(ui.evConnected); a.speak(ui.evConnected); }
     else if (a.dotpadStatus === 'error' || a.dotpadStatus === 'unsupported') {
-      const msg = statusLabel[a.dotpadStatus] ?? '';
+      const msg = STATUS_MSG[a.dotpadStatus] ?? '';
       a.announce(msg); a.speak(msg);
     }
   };
 
   const handleDisconnect = () => {
     a.dotpad.disconnect();
-    const msg = lang === 'ko' ? 'Dot Pad 연결이 해제되었습니다.' : 'Dot Pad disconnected.';
+    const msg = ko ? 'Dot Pad 연결이 해제되었습니다.' : 'Dot Pad disconnected.';
     a.announce(msg); a.speak(msg);
   };
 
+  const isScanning = a.dotpadStatus === 'scanning' || a.dotpadStatus === 'connecting';
+  const isError    = a.dotpadStatus === 'error' || a.dotpadStatus === 'unsupported';
+
   return (
     <div className="dotpad-connect-section" aria-live="polite">
-      <div className="dotpad-row">
-        <span className={'dot-status' + (a.dotpadConnected ? ' on' : '')}>
-          {a.dotpadConnected ? ui.connected : ui.off}
+      {/* Status indicator strip */}
+      <div className={'dp-status-bar' + (a.dotpadConnected ? ' connected' : isError ? ' error' : '')}>
+        <span className="dp-status-dot" aria-hidden="true" />
+        <span className="dp-status-text">
+          {a.dotpadConnected
+            ? (ko ? '✓ Dot Pad 연결됨' : '✓ Dot Pad connected')
+            : isScanning
+              ? STATUS_MSG[a.dotpadStatus]
+              : (ko ? 'Dot Pad 미연결' : 'Dot Pad not connected')}
         </span>
+      </div>
+
+      {/* Action buttons */}
+      <div className="dotpad-row">
         {a.dotpadConnected ? (
-          <button className="btn-ghost btn-sm" onClick={handleDisconnect}>
-            ✕ {lang === 'ko' ? '연결 해제' : 'Disconnect'}
+          <button className="btn-ghost btn-danger" onClick={handleDisconnect}>
+            ⏏ {ko ? '연결 해제' : 'Disconnect'}
           </button>
         ) : (
-          <button className={'btn-ghost' + (busy ? ' loading' : '')} onClick={handleConnect} disabled={busy} aria-busy={busy}>
-            {busy ? '⠿ ' : '🔗 '}{busy ? (lang === 'ko' ? '연결 중...' : 'Connecting…') : ui.connect}
+          <button
+            className={'btn-primary dp-connect-btn' + (busy ? ' loading' : '')}
+            onClick={handleConnect}
+            disabled={busy || a.dotpadStatus === 'unsupported'}
+            aria-busy={busy}
+          >
+            {busy
+              ? `⠿ ${STATUS_MSG[a.dotpadStatus]}`
+              : `🔗 ${ko ? 'Dot Pad 연결하기' : 'Connect Dot Pad'}`}
           </button>
         )}
       </div>
-      {(a.dotpadStatus === 'error' || a.dotpadStatus === 'unsupported') && (
-        <p className="dotpad-error" role="alert">{statusLabel[a.dotpadStatus]}</p>
-      )}
-      {(a.dotpadStatus === 'scanning' || a.dotpadStatus === 'connecting') && (
-        <p className="dotpad-hint" aria-live="polite">{statusLabel[a.dotpadStatus]}</p>
+
+      {isError && (
+        <p className="dotpad-error" role="alert">{STATUS_MSG[a.dotpadStatus]}</p>
       )}
     </div>
   );

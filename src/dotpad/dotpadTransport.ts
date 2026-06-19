@@ -1,6 +1,6 @@
 // Web Bluetooth transport layer using DotPadSDK.
 // Explicit import ensures this module is NOT tree-shaken even when no device is yet connected.
-import { DotPadSDK, DotPadScanner, DataCodes, type DotDevice } from './DotPadSDK.js';
+import { DotPadSDK, DotPadScanner, DataCodes, KeyCodes, type DotDevice } from './DotPadSDK.js';
 
 export type TransportStatus =
   | 'idle'
@@ -10,6 +10,26 @@ export type TransportStatus =
   | 'disconnected'
   | 'error'
   | 'unsupported';
+
+export type DotKeyAction =
+  | 'panLeft' | 'panRight' | 'panAll'
+  | 'f1' | 'f2' | 'f3' | 'f4'
+  | 'lpf1' | 'rpf4';
+
+function mapKey(key: string): DotKeyAction | null {
+  switch (key) {
+    case KeyCodes.PanningLeft:  return 'panLeft';
+    case KeyCodes.PanningRight: return 'panRight';
+    case KeyCodes.PanningAll:   return 'panAll';
+    case KeyCodes.KeyFunction1: return 'f1';
+    case KeyCodes.KeyFunction2: return 'f2';
+    case KeyCodes.KeyFunction3: return 'f3';
+    case KeyCodes.KeyFunction4: return 'f4';
+    case KeyCodes.LPF1:         return 'lpf1';
+    case KeyCodes.RPF4:         return 'rpf4';
+    default:                    return null;
+  }
+}
 
 export type StatusListener = (status: TransportStatus, detail?: string) => void;
 
@@ -21,10 +41,16 @@ export class DotPadTransport {
   private listeners: StatusListener[] = [];
   private readyListeners: Array<() => void> = [];
 
+  /** Set this to receive physical key presses from the connected Dot Pad. */
+  onKey?: (action: DotKeyAction) => void;
+
   constructor() {
     this.sdk.setCallBack(
       (dev, code) => this.onSdkMessage(dev, code),
-      () => {},
+      (_dev, key) => {
+        const action = mapKey(key);
+        if (action) this.onKey?.(action);
+      },
     );
   }
 

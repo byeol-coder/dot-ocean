@@ -4,7 +4,9 @@
 //   WebBluetoothDotPad – real BLE device via DotPadSDK (opt-in, requires user gesture)
 
 import { DotPadOutputManager } from '../dotpad/dotpadOutputManager';
-import type { TransportStatus } from '../dotpad/dotpadTransport';
+import type { TransportStatus, DotKeyAction } from '../dotpad/dotpadTransport';
+
+export type { DotKeyAction };
 
 export interface DotPadAdapter {
   readonly connected: boolean;
@@ -17,6 +19,8 @@ export interface DotPadAdapter {
   disconnect(): void;
   /** Optional: called when connection status changes so the app can update UI. */
   onStatusChange?: (connected: boolean, status: TransportStatus, detail?: string) => void;
+  /** Optional: called when the user presses a physical key on the Dot Pad. */
+  onKey?: (action: DotKeyAction) => void;
 }
 
 /** Default: no-op adapter. The on-screen RadarPad/DotMatrix components handle preview. */
@@ -27,6 +31,7 @@ export class SimulatedDotPad implements DotPadAdapter {
   renderHex(_hex: string): void { /* no physical device */ }
   disconnect(): void { this.connected = false; this.onStatusChange?.(false, 'disconnected'); }
   onStatusChange?: (connected: boolean, status: TransportStatus, detail?: string) => void;
+  onKey?: (action: DotKeyAction) => void;
 }
 
 /**
@@ -40,8 +45,12 @@ export class WebBluetoothDotPad implements DotPadAdapter {
   private readonly manager = new DotPadOutputManager();
   onStatusChange?: (connected: boolean, status: TransportStatus, detail?: string) => void;
 
+  // Forward key events from transport → consumer (GameCanvas, App, etc.)
+  set onKey(fn: ((action: DotKeyAction) => void) | undefined) {
+    this.manager.onKey = fn;
+  }
+
   constructor() {
-    // Wire transport status → adapter status callback (called on connect/disconnect/error)
     this.manager.onStatus((status, detail) => {
       const isConnected = status === 'connected';
       this._connected = isConnected;
@@ -52,17 +61,14 @@ export class WebBluetoothDotPad implements DotPadAdapter {
   private _connected = false;
   get connected(): boolean { return this._connected; }
 
-  /** Opens the native BLE device picker. MUST be called from a button click handler. */
   async connect(): Promise<boolean> {
     return this.manager.connect();
   }
 
-  /** Sends the radar frame to the real Dot Pad device (batched via rAF). */
   render(grid: number[][]): void {
     this.manager.push(grid);
   }
 
-  /** Sends a pre-encoded DTMS hex string directly — bypasses encodeGrid. */
   renderHex(hex: string): void {
     this.manager.pushHex(hex);
   }
